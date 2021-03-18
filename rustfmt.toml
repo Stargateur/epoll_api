@@ -1,0 +1,63 @@
+#Commented option are not stable
+#binop_separator
+#blank_lines_lower_bound
+#blank_lines_upper_bound
+#brace_style
+#color
+#combine_control_expr
+#comment_width
+#condense_wildcard_suffixes
+#control_brace_style
+#disable_all_formatting
+edition = "2018"
+#empty_item_single_line
+#enum_discrim_align_threshold
+#error_on_line_overflow
+#error_on_unformatted
+fn_args_layout = "Vertical"
+#fn_single_line
+force_explicit_abi = true
+#force_multiline_blocks
+#format_code_in_doc_comments
+#format_macro_matchers
+#format_macro_bodies
+#format_strings
+hard_tabs = false
+#hide_parse_errors
+#ignore
+#imports_indent
+#imports_layout
+#indent_style
+#inline_attribute_width
+#license_template_path
+#match_arm_blocks
+#match_block_trailing_comma
+max_width = 100
+merge_derives = false
+#merge_imports = true
+newline_style = "Unix"
+#normalize_comments
+#normalize_doc_attributes
+#overflow_delimited_expr
+remove_nested_parens = true
+#reorder_impl_items
+reorder_imports = true
+reorder_modules = true
+#report_fixme
+#report_todo
+#required_version
+#space_after_colon
+#space_before_colon
+#spaces_around_ranges
+#struct_field_align_threshold
+#struct_lit_single_line
+tab_spaces = 4
+#trailing_comma
+#trailing_semicolon
+#type_punctuation_density
+#unstable_features
+use_field_init_shorthand = true
+use_small_heuristics = "Default"
+use_try_shorthand = true
+#where_single_line
+#wrap_comments

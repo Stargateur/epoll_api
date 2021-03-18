@@ -1,0 +1,27 @@
+[package]
+name = "epoll_api"
+version = "0.0.0"
+authors = ["Antoine PLASKOWSKI <plaskowski.stanislas@gmail.com>"]
+description = """
+    This crate aims to provide a full featured EPOLL interface.
+    The goal is to avoid any use of unsafe from the user side.
+"""
+readme = "README.md"
+keywords = ["epoll", "library"]
+license = "MIT"
+repository = "https://github.com/Stargateur/epoll_api"
+documentation = "https://docs.rs/epoll_api/"
+edition = "2018"
+
+exclude = [
+  "/.travis.yml",
+  "/.gitignore",
+  "/.Cargo.lock",
+  "/rustfmt.toml"
+]
+
+[dependencies]
+libc = "0.2"
+static_assertions = "1"
+epoll = "4"
+snafu = "0.6"
