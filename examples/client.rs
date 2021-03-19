@@ -1,5 +1,6 @@
 use epoll_api::{
-    utils::read_until_wouldblock, Data, EPoll, EPollApi, Event, Flags, MaxEvents, TimeOut,
+    utils::{read_until_wouldblock, set_non_blocking},
+    Data, EPoll, EPollApi, Event, Flags, MaxEvents, TimeOut,
 };
 
 use std::{
@@ -79,6 +80,7 @@ fn main() {
     {
         let stdin = io::stdin();
         let fd = stdin.as_raw_fd();
+        set_non_blocking(fd).unwrap();
         let event = Event::new(
             Flags::EPOLLIN | Flags::EPOLLET,
             Data::new_ptr(Kind::Stdin(stdin)),

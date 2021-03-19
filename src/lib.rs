@@ -724,7 +724,10 @@ mod tests_epoll {
 }
 
 pub mod utils {
-    use std::io::{self, ErrorKind, Read};
+    use std::{
+        io::{self, ErrorKind, Read},
+        os::unix::io::AsRawFd,
+    };
 
     pub fn read_until_wouldblock<R: Read>(
         mut reader: R,
@@ -753,5 +756,23 @@ pub mod utils {
         log::trace!("<= read_until_wouldblock");
 
         Ok(())
+    }
+
+    pub fn set_non_blocking<Fd: AsRawFd>(fd: Fd) -> io::Result<()> {
+        let fd = fd.as_raw_fd();
+        unsafe {
+            let flags = libc::fcntl(fd, libc::F_GETFL);
+            if flags == -1 {
+                Err(io::Error::last_os_error())
+            } else if flags & libc::O_NONBLOCK != libc::O_NONBLOCK {
+                if libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) == -1 {
+                    Err(io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
+            } else {
+                Ok(())
+            }
+        }
     }
 }

@@ -66,6 +66,7 @@ fn main() {
                                     println!("New client: {}", addr);
 
                                     let fd = stream.as_raw_fd();
+                                    listener.set_nonblocking(true).unwrap();
                                     let event = Event::new(
                                         Flags::EPOLLIN | Flags::EPOLLOUT | Flags::EPOLLET,
                                         Data::new_ptr(Kind::Client(Client {
