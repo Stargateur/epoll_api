@@ -1,8 +1,10 @@
-use epoll_api::{Data, EPoll, EPollApi, Event, Flags, MaxEvents, TimeOut};
+use epoll_api::{
+    utils::read_until_wouldblock, Data, EPoll, EPollApi, Event, Flags, MaxEvents, TimeOut,
+};
 
 use std::{
     collections::VecDeque,
-    io::{self, ErrorKind, Read, Write},
+    io::{self, ErrorKind, Write},
     net::{Ipv6Addr, TcpListener, TcpStream},
     os::unix::io::AsRawFd,
 };
@@ -24,32 +26,6 @@ impl Client {
         log::trace!("write");
         self.buffer.drain(..n);
         Ok(n)
-    }
-
-    fn read_buffer(&mut self) -> io::Result<()> {
-        log::trace!("start read");
-        let mut buffer = [0; 1024];
-        loop {
-            match self.stream.read(&mut buffer) {
-                Ok(n) => {
-                    if n == 0 {
-                        return Err(ErrorKind::ConnectionAborted.into());
-                    }
-
-                    self.buffer.copy_from_slice(&buffer[..n]);
-                }
-                Err(e) => {
-                    if e.kind() == ErrorKind::WouldBlock {
-                        break;
-                    } else {
-                        return Err(e);
-                    }
-                }
-            }
-        }
-        log::trace!("end read");
-
-        Ok(())
     }
 }
 
@@ -112,7 +88,7 @@ fn main() {
                 }
                 Kind::Client(client) => {
                     if flags.contains(Flags::EPOLLIN) {
-                        match client.read_buffer() {
+                        match read_until_wouldblock(&client.stream, &mut client.buffer) {
                             Ok(_) => {
                                 if let Err(e) = client.write_buffer() {
                                     eprint!("{}", e);

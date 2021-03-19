@@ -620,7 +620,7 @@ impl<T: DataKind> EPoll<T> {
         unsafe {
             let num_events = {
                 #[cfg(feature = "log")]
-                log::debug!("Enter epoll_wait");
+                log::debug!("=> epoll_wait");
                 let ret = libc::epoll_wait(
                     self.as_raw_fd(),
                     self.buffer.as_mut_ptr() as *mut libc::epoll_event,
@@ -628,7 +628,7 @@ impl<T: DataKind> EPoll<T> {
                     timeout.into(),
                 );
                 #[cfg(feature = "log")]
-                log::debug!("Exit epoll_wait");
+                log::debug!("<= epoll_wait");
                 if ret < 0 {
                     return Err(io::Error::last_os_error());
                 } else {
@@ -720,5 +720,38 @@ mod tests_epoll {
     #[should_panic]
     fn create_with_max() {
         create::<U32>(false, usize::MAX);
+    }
+}
+
+pub mod utils {
+    use std::io::{self, ErrorKind, Read};
+
+    pub fn read_until_wouldblock<R: Read>(
+        mut reader: R,
+        output: &mut Vec<u8>,
+    ) -> io::Result<()> {
+        log::trace!("=> read_until_wouldblock");
+        let mut buffer = [0; 1024];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(n) => {
+                    if n == 0 {
+                        return Err(ErrorKind::ConnectionAborted.into());
+                    }
+
+                    output.extend_from_slice(&buffer[..n]);
+                }
+                Err(e) => {
+                    if e.kind() == ErrorKind::WouldBlock {
+                        break;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        log::trace!("<= read_until_wouldblock");
+
+        Ok(())
     }
 }

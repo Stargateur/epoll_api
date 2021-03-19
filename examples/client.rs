@@ -1,4 +1,6 @@
-use epoll_api::{Data, EPoll, EPollApi, Event, Flags, MaxEvents, TimeOut};
+use epoll_api::{
+    utils::read_until_wouldblock, Data, EPoll, EPollApi, Event, Flags, MaxEvents, TimeOut,
+};
 
 use std::{
     io::{self, ErrorKind, Read, Write},
@@ -24,32 +26,6 @@ impl Server {
         log::trace!("end write");
         self.buf_write.drain(..n);
         Ok(n)
-    }
-
-    fn read_buffer(&mut self) -> io::Result<()> {
-        log::trace!("start read");
-        let mut buffer = [0; 1024];
-        loop {
-            match self.stream.read(&mut buffer) {
-                Ok(n) => {
-                    if n == 0 {
-                        return Err(ErrorKind::ConnectionAborted.into());
-                    }
-
-                    self.buf_read.copy_from_slice(&buffer[..n]);
-                }
-                Err(e) => {
-                    if e.kind() == ErrorKind::WouldBlock {
-                        break;
-                    } else {
-                        return Err(e);
-                    }
-                }
-            }
-        }
-        log::trace!("end read");
-
-        Ok(())
     }
 
     fn use_buffer(&mut self) {
@@ -119,7 +95,7 @@ fn main() {
             match kind {
                 Kind::Server(server) => {
                     if flags.contains(Flags::EPOLLIN) {
-                        match server.read_buffer() {
+                        match read_until_wouldblock(&server.stream, &mut server.buf_read) {
                             Ok(_) => server.use_buffer(),
                             Err(e) => {
                                 log::error!("{}", e);
