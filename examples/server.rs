@@ -32,10 +32,14 @@ impl Client {
         loop {
             match self.stream.read(&mut buffer) {
                 Ok(n) => {
+                    if n == 0 {
+                        return Err(ErrorKind::ConnectionAborted.into());
+                    }
+
                     self.buffer.copy_from_slice(&buffer[..n]);
                 }
                 Err(e) => {
-                    if e.kind() != ErrorKind::WouldBlock {
+                    if e.kind() == ErrorKind::WouldBlock {
                         break;
                     } else {
                         return Err(e);

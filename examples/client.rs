@@ -32,10 +32,14 @@ impl Server {
         loop {
             match self.stream.read(&mut buffer) {
                 Ok(n) => {
+                    if n == 0 {
+                        return Err(ErrorKind::ConnectionAborted.into());
+                    }
+
                     self.buf_read.copy_from_slice(&buffer[..n]);
                 }
                 Err(e) => {
-                    if e.kind() != ErrorKind::WouldBlock {
+                    if e.kind() == ErrorKind::WouldBlock {
                         break;
                     } else {
                         return Err(e);
@@ -45,6 +49,10 @@ impl Server {
         }
         log::trace!("end read");
 
+        Ok(())
+    }
+
+    fn use_buffer(&mut self) {
         let valid = match std::str::from_utf8(&self.buf_read) {
             Ok(valid) => valid,
             Err(error) => {
@@ -62,8 +70,6 @@ impl Server {
 
         let to_drain = ..valid.len();
         self.buf_read.drain(to_drain);
-
-        Ok(())
     }
 }
 
@@ -114,11 +120,10 @@ fn main() {
                 Kind::Server(server) => {
                     if flags.contains(Flags::EPOLLIN) {
                         match server.read_buffer() {
-                            Ok(_) => {}
+                            Ok(_) => server.use_buffer(),
                             Err(e) => {
-                                if e.kind() != ErrorKind::WouldBlock {
-                                    break 'run;
-                                }
+                                log::error!("{}", e);
+                                break 'run;
                             }
                         }
                     }
@@ -138,7 +143,12 @@ fn main() {
                         };
 
                         match stdin.read_to_end(&mut server.buf_write) {
-                            Ok(_) => {}
+                            Ok(_) => {
+                                if let Err(e) = server.write_buffer() {
+                                    log::error!("{}", e);
+                                    break 'run;
+                                }
+                            }
                             Err(e) => {
                                 log::error!("{}", e);
                                 if e.kind() != ErrorKind::WouldBlock {
