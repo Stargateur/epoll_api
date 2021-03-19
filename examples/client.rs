@@ -19,17 +19,31 @@ struct Server {
 
 impl Server {
     fn write_buffer(&mut self) -> io::Result<usize> {
-        log::trace!("write");
+        log::trace!("start write");
         let n = self.stream.write(&self.buf_write)?;
-        log::trace!("write");
+        log::trace!("end write");
         self.buf_write.drain(..n);
         Ok(n)
     }
 
-    fn read_buffer(&mut self) -> io::Result<usize> {
-        log::trace!("read_to_end");
-        let n = self.stream.read_to_end(&mut self.buf_read)?;
-        log::trace!("read_to_end");
+    fn read_buffer(&mut self) -> io::Result<()> {
+        log::trace!("start read");
+        let mut buffer = [0; 1024];
+        loop {
+            match self.stream.read(&mut buffer) {
+                Ok(n) => {
+                    self.buf_read.copy_from_slice(&buffer[..n]);
+                }
+                Err(e) => {
+                    if e.kind() != ErrorKind::WouldBlock {
+                        break;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        log::trace!("end read");
 
         let valid = match std::str::from_utf8(&self.buf_read) {
             Ok(valid) => valid,
@@ -49,7 +63,7 @@ impl Server {
         let to_drain = ..valid.len();
         self.buf_read.drain(to_drain);
 
-        Ok(n)
+        Ok(())
     }
 }
 
@@ -110,7 +124,7 @@ fn main() {
                     }
                     if flags.contains(Flags::EPOLLOUT) {
                         if let Err(e) = server.write_buffer() {
-                            eprint!("{}", e);
+                            log::error!("{}", e);
                             break 'run;
                         }
                     }
@@ -126,6 +140,7 @@ fn main() {
                         match stdin.read_to_end(&mut server.buf_write) {
                             Ok(_) => {}
                             Err(e) => {
+                                log::error!("{}", e);
                                 if e.kind() != ErrorKind::WouldBlock {
                                     break 'run;
                                 }

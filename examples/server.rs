@@ -26,12 +26,26 @@ impl Client {
         Ok(n)
     }
 
-    fn read_buffer(&mut self) -> io::Result<usize> {
-        log::trace!("read_to_end");
-        let n = self.stream.read_to_end(&mut self.buffer)?;
-        log::trace!("read_to_end");
+    fn read_buffer(&mut self) -> io::Result<()> {
+        log::trace!("start read");
+        let mut buffer = [0; 1024];
+        loop {
+            match self.stream.read(&mut buffer) {
+                Ok(n) => {
+                    self.buffer.copy_from_slice(&buffer[..n]);
+                }
+                Err(e) => {
+                    if e.kind() != ErrorKind::WouldBlock {
+                        break;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        log::trace!("end read");
 
-        Ok(n)
+        Ok(())
     }
 }
 
