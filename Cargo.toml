@@ -19,8 +19,6 @@ readme = "README.md"
 [features]
 default = []
 
-log = []
-
 [dependencies]
 epoll = "4"
 libc = "0.2"
@@ -28,5 +26,9 @@ libc = "0.2"
 # utils
 bounded-integer = "0.3"
 static_assertions = "1"
+
+[dependencies.log]
+version = "0.4"
+optional = true
 
 [dev-dependencies]

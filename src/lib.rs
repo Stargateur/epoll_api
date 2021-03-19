@@ -7,15 +7,24 @@ use std::{
     io::{self, ErrorKind},
     marker::PhantomData,
     mem::MaybeUninit,
-    os::unix::io::RawFd,
+    os::unix::io::{AsRawFd, RawFd},
     ptr::null_mut,
 };
 
-pub use epoll::{ControlOptions, Events};
+pub use epoll::{ControlOptions, Events as Flags};
 
 bounded_integer::bounded_integer! {
     #[repr(usize)]
     pub struct MaxEvents { 1..2147483647 }
+}
+
+bounded_integer::bounded_integer! {
+    #[repr(i32)]
+    pub struct TimeOut { -1..2147483647 }
+}
+
+impl TimeOut {
+    pub const INFINITE: Self = Self::MIN;
 }
 
 #[derive(Copy, Clone)]
@@ -24,6 +33,24 @@ union RawData {
     fd: RawFd,
     _u32: u32,
     _u64: u64,
+}
+
+/// 'libc::epoll_event' equivalent.
+#[repr(C)]
+#[cfg_attr(
+    any(
+        all(
+            target_arch = "x86",
+            not(target_env = "musl"),
+            not(target_os = "android")
+        ),
+        target_arch = "x86_64"
+    ),
+    repr(packed)
+)]
+pub struct RawEvent {
+    flags: u32,
+    data: RawData,
 }
 
 /// Regroup DakaKind type
@@ -59,6 +86,12 @@ impl DataKind for U64 {}
 pub struct Data<T: DataKind> {
     raw: RawData,
     data_kind: PhantomData<T>,
+}
+
+impl<T: DataKind> Data<T> {
+    fn raw(&self) -> RawData {
+        self.raw
+    }
 }
 
 impl Data<Fd> {
@@ -211,7 +244,7 @@ impl Debug for Data<U64> {
     repr(packed)
 )]
 pub struct Event<T: DataKind> {
-    events: Events,
+    flags: Flags,
     data: Data<T>,
 }
 
@@ -225,14 +258,14 @@ static_assertions::assert_eq_size!(
 
 impl<T: DataKind> Event<T> {
     pub fn new(
-        events: Events,
+        flags: Flags,
         data: Data<T>,
     ) -> Self {
-        Self { events, data }
+        Self { flags, data }
     }
 
-    pub fn events(&self) -> Events {
-        self.events
+    pub fn flags(&self) -> Flags {
+        self.flags
     }
 
     pub fn data(&self) -> &Data<T> {
@@ -248,6 +281,10 @@ impl<T: DataKind> Event<T> {
         );
         unsafe { &self.data }
     }
+
+    pub fn into_data(self) -> Data<T> {
+        self.data
+    }
 }
 
 impl<T: DataKind> Clone for Event<T>
@@ -255,7 +292,7 @@ where
     Data<T>: Clone,
 {
     fn clone(&self) -> Self {
-        Self::new(self.events, self.data().clone())
+        Self::new(self.flags, self.data().clone())
     }
 }
 
@@ -268,7 +305,7 @@ where
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
         f.debug_struct("Event")
-            .field("events", &self.events())
+            .field("flags", &self.flags())
             .field("data", self.data())
             .finish()
     }
@@ -287,9 +324,14 @@ where
 /// You will need to handle this a little yourself by calling `into_inner()`
 /// when you use the Ptr<T> type
 pub struct EPoll<T: DataKind> {
-    fd: RawFd,
-    datas: HashMap<RawFd, Event<T>>,
+    api: Api<T>,
     buffer: Vec<MaybeUninit<Event<T>>>,
+}
+
+impl<T: DataKind> AsRawFd for EPoll<T> {
+    fn as_raw_fd(&self) -> RawFd {
+        self.api.as_raw_fd()
+    }
 }
 
 impl<T: DataKind> Debug for EPoll<T>
@@ -300,10 +342,159 @@ where
         &self,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
-        f.debug_struct("EPoll")
+        write!(f, "{:?}", self.api)
+    }
+}
+
+impl<T> EPoll<Ptr<T>> {
+    pub fn drop(self) {
+        let (_, datas) = self.close();
+
+        for (_, data) in datas {
+            data.into_inner();
+        }
+    }
+}
+
+pub trait EPollApi<T: DataKind> {
+    /// Safe wrapper to add an event for `libc::epoll_ctl`
+    fn add(
+        &mut self,
+        fd: RawFd,
+        event: Event<T>,
+    ) -> io::Result<&mut Data<T>>;
+
+    fn mod_flags(
+        &mut self,
+        fd: RawFd,
+        flags: Flags,
+    ) -> io::Result<()>;
+
+    /// This return all data associed with this epoll fd
+    /// You CAN'T modify direclt Event<T> the only thing you can modify
+    /// is Event<Ptr<T>> because it's a reference
+    /// if you want modify the direct value of Event<T>
+    /// you will need to use `ctl_mod()`
+    fn get_datas(&self) -> &HashMap<RawFd, Data<T>>;
+}
+
+pub struct Wait<'a, T: DataKind> {
+    pub api: &'a mut Api<T>,
+    pub events: &'a mut [Event<T>],
+}
+
+impl<'a, T: DataKind> Wait<'a, T> {
+    fn new(
+        api: &'a mut Api<T>,
+        events: &'a mut [Event<T>],
+    ) -> Self {
+        Self { api, events }
+    }
+}
+pub struct Api<T: DataKind> {
+    fd: RawFd,
+    datas: HashMap<RawFd, Data<T>>,
+}
+
+impl<T: DataKind> AsRawFd for Api<T> {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd
+    }
+}
+
+impl<T: DataKind> Debug for Api<T>
+where
+    Data<T>: Debug,
+{
+    fn fmt(
+        &self,
+        f: &mut Formatter<'_>,
+    ) -> fmt::Result {
+        f.debug_struct("Api")
             .field("fd", &self.fd)
             .field("datas", &self.datas)
             .finish()
+    }
+}
+
+impl<T: DataKind> Api<T> {
+    fn new(fd: RawFd) -> Self {
+        Self {
+            fd,
+            datas: Default::default(),
+        }
+    }
+}
+
+impl<T: DataKind> EPollApi<T> for Api<T> {
+    fn add(
+        &mut self,
+        fd: RawFd,
+        mut event: Event<T>,
+    ) -> io::Result<&mut Data<T>> {
+        match self.datas.entry(fd) {
+            Entry::Occupied(_) => Err(ErrorKind::AlreadyExists.into()),
+            Entry::Vacant(v) => {
+                let op = ControlOptions::EPOLL_CTL_ADD as i32;
+                let event_ptr = &mut event as *mut _ as *mut libc::epoll_event;
+
+                if unsafe { libc::epoll_ctl(self.fd, op, fd, event_ptr) } < 0 {
+                    Err(io::Error::last_os_error())
+                } else {
+                    Ok(v.insert(event.into_data()))
+                }
+            }
+        }
+    }
+
+    fn mod_flags(
+        &mut self,
+        fd: RawFd,
+        flags: Flags,
+    ) -> io::Result<()> {
+        match self.datas.entry(fd) {
+            Entry::Occupied(o) => {
+                let data = o.into_mut().raw();
+                let flags = flags.bits();
+
+                let mut raw_event = RawEvent { flags, data };
+                let event = &mut raw_event as *mut _ as *mut libc::epoll_event;
+                let op = ControlOptions::EPOLL_CTL_MOD as i32;
+
+                if unsafe { libc::epoll_ctl(self.fd, op, fd, event) } < 0 {
+                    Err(io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
+            }
+            Entry::Vacant(_) => Err(ErrorKind::NotFound.into()),
+        }
+    }
+
+    fn get_datas(&self) -> &HashMap<RawFd, Data<T>> {
+        &self.datas
+    }
+}
+
+impl<T: DataKind> EPollApi<T> for EPoll<T> {
+    fn add(
+        &mut self,
+        fd: RawFd,
+        event: Event<T>,
+    ) -> io::Result<&mut Data<T>> {
+        self.api.add(fd, event)
+    }
+
+    fn mod_flags(
+        &mut self,
+        fd: RawFd,
+        flags: Flags,
+    ) -> io::Result<()> {
+        self.api.mod_flags(fd, flags)
+    }
+
+    fn get_datas(&self) -> &HashMap<RawFd, Data<T>> {
+        self.api.get_datas()
     }
 }
 
@@ -315,56 +506,36 @@ impl<T: DataKind> EPoll<T> {
     /// ## Notes
     ///
     /// * `epoll_create1()` is the underlying syscall.
-    pub fn create(
+    pub fn new(
         close_exec: bool,
         max_events: MaxEvents,
     ) -> io::Result<Self> {
         let fd = epoll::create(close_exec)?;
 
         Ok(Self {
-            fd,
-            datas: Default::default(),
+            api: Api::new(fd),
             buffer: Vec::with_capacity(max_events.into()),
         })
     }
 
-    /// Safe wrapper to add an event for `libc::epoll_ctl`
-    pub fn ctl_add(
-        &mut self,
-        fd: RawFd,
-        event: Event<T>,
-    ) -> io::Result<()> {
-        match self.datas.entry(fd) {
-            Entry::Occupied(_) => Err(ErrorKind::AlreadyExists.into()),
-            Entry::Vacant(v) => {
-                let event = v.insert(event) as *mut _ as *mut libc::epoll_event;
-                let op = ControlOptions::EPOLL_CTL_ADD as i32;
-
-                if unsafe { libc::epoll_ctl(self.fd, op, fd, event) } < 0 {
-                    Err(io::Error::last_os_error())
-                } else {
-                    Ok(())
-                }
-            }
-        }
-    }
-
     /// Safe wrapper to modify an event for `libc::epoll_ctl`
     /// return the old value
-    pub fn ctl_mod(
+    pub fn mod_event(
         &mut self,
         fd: RawFd,
         mut event: Event<T>,
-    ) -> io::Result<Event<T>> {
-        match self.datas.entry(fd) {
-            Entry::Occupied(mut o) => {
+    ) -> io::Result<(Data<T>, &mut Data<T>)> {
+        match self.api.datas.entry(fd) {
+            Entry::Occupied(o) => {
                 let new = &mut event as *mut _ as *mut libc::epoll_event;
                 let op = ControlOptions::EPOLL_CTL_MOD as i32;
 
-                if unsafe { libc::epoll_ctl(self.fd, op, fd, new) } < 0 {
+                if unsafe { libc::epoll_ctl(self.api.fd, op, fd, new) } < 0 {
                     Err(io::Error::last_os_error())
                 } else {
-                    Ok(o.insert(event))
+                    let data = o.into_mut();
+                    let old = std::mem::replace(data, event.into_data());
+                    Ok((old, data))
                 }
             }
             Entry::Vacant(_) => Err(ErrorKind::NotFound.into()),
@@ -372,16 +543,16 @@ impl<T: DataKind> EPoll<T> {
     }
 
     /// Safe wrapper to delete an event for `libc::epoll_ctl`
-    pub fn ctl_del(
+    pub fn del(
         &mut self,
         fd: RawFd,
-    ) -> io::Result<Event<T>> {
-        match self.datas.entry(fd) {
+    ) -> io::Result<Data<T>> {
+        match self.api.datas.entry(fd) {
             Entry::Occupied(o) => {
                 let event = null_mut() as *mut libc::epoll_event;
                 let op = ControlOptions::EPOLL_CTL_DEL as i32;
 
-                if unsafe { libc::epoll_ctl(self.fd, op, fd, event) } < 0 {
+                if unsafe { libc::epoll_ctl(self.api.fd, op, fd, event) } < 0 {
                     Err(io::Error::last_os_error())
                 } else {
                     Ok(o.remove())
@@ -389,6 +560,22 @@ impl<T: DataKind> EPoll<T> {
             }
             Entry::Vacant(_) => Err(ErrorKind::NotFound.into()),
         }
+    }
+
+    /// Safe wrapper for `libc::close`
+    /// this will return the datas
+    /// For Event<Ptr<T>> only if you want to free ressource
+    /// you will need to call `Event<Ptr<T>>::into_inner()`
+    /// This could be improve if we could specialize Drop
+    /// https://github.com/rust-lang/rust/issues/46893
+    pub fn close(self) -> (io::Result<()>, HashMap<RawFd, Data<T>>) {
+        let ret = if unsafe { libc::close(self.as_raw_fd()) } < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        };
+
+        (ret, self.api.datas)
     }
 
     /// Safe wrapper for `libc::epoll_wait`
@@ -399,16 +586,14 @@ impl<T: DataKind> EPoll<T> {
     /// * If `timeout` is negative, it will block until an event is received.
     pub fn wait(
         &mut self,
-        timeout: i32,
-    ) -> io::Result<&mut [Event<T>]> {
-        let timeout = if timeout < 0 { -1 } else { timeout };
-
+        timeout: TimeOut,
+    ) -> io::Result<Wait<T>> {
         let num_events = unsafe {
             let ret = libc::epoll_wait(
-                self.fd,
+                self.as_raw_fd(),
                 self.buffer.as_mut_ptr() as *mut libc::epoll_event,
                 self.buffer.capacity() as i32,
-                timeout,
+                timeout.into(),
             );
             if ret < 0 {
                 return Err(io::Error::last_os_error());
@@ -422,7 +607,8 @@ impl<T: DataKind> EPoll<T> {
         }
 
         // https://doc.rust-lang.org/std/mem/union.MaybeUninit.html#method.slice_assume_init_ref
-        Ok(unsafe { &mut *(self.buffer.as_mut_slice() as *mut _ as *mut [Event<T>]) })
+        let buffer = unsafe { &mut *(self.buffer.as_mut_slice() as *mut _ as *mut [Event<T>]) };
+        Ok(Wait::new(&mut self.api, buffer))
     }
 
     /// This resize the buffer used to recieve event
@@ -433,29 +619,6 @@ impl<T: DataKind> EPoll<T> {
         self.buffer
             .resize_with(max_events.into(), MaybeUninit::uninit);
         self.buffer.shrink_to_fit();
-    }
-
-    /// Safe wrapper for `libc::close`
-    /// this will return the datas
-    /// For Event<Ptr<T>> only if you want to free ressource
-    /// you will need to call `Event<Ptr<T>>::into_inner()`
-    /// This could be improve if we could specialize Drop
-    /// https://github.com/rust-lang/rust/issues/46893
-    pub fn close(self) -> io::Result<HashMap<RawFd, Event<T>>> {
-        if unsafe { libc::close(self.fd) } < 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(self.datas)
-        }
-    }
-
-    /// This return all data associed with this epoll fd
-    /// You CAN'T modify direclt Event<T> the only thing you can modify
-    /// is Event<Ptr<T>> because it's a reference
-    /// if you want modify the direct value of Event<T>
-    /// you will need to use `ctl_mod()`
-    pub fn get_data(&self) -> &HashMap<RawFd, Event<T>> {
-        &self.datas
     }
 }
 
@@ -483,9 +646,9 @@ mod tests_epoll {
         max_events: usize,
     ) -> EPoll<T> {
         let max_events = MaxEvents::new(max_events).unwrap();
-        let epoll = EPoll::create(close_exec, max_events).unwrap();
+        let epoll = EPoll::new(close_exec, max_events).unwrap();
 
-        let ret = is_epoll_fd_close_exec(epoll.fd);
+        let ret = is_epoll_fd_close_exec(epoll.as_raw_fd());
         assert_eq!(ret, close_exec, "close_exec: {}", ret);
 
         let capacity = epoll.buffer.capacity();
