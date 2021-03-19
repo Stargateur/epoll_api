@@ -1,16 +1,22 @@
+// https://github.com/Kestrer/bounded-integer/issues/5
+#![allow(clippy::manual_range_contains)]
+
 use std::{
     collections::hash_map::{Entry, HashMap},
-    convert::TryInto,
     fmt::{self, Debug, Formatter},
     io::{self, ErrorKind},
     marker::PhantomData,
     mem::MaybeUninit,
-    num::TryFromIntError,
     os::unix::io::RawFd,
     ptr::null_mut,
 };
 
 pub use epoll::{ControlOptions, Events};
+
+bounded_integer::bounded_integer! {
+    #[repr(usize)]
+    pub struct MaxEvents { 1..2147483647 }
+}
 
 #[derive(Copy, Clone)]
 union RawData {
@@ -304,24 +310,21 @@ where
 impl<T: DataKind> EPoll<T> {
     /// Creates a new epoll file descriptor.
     ///
-    /// If `cloexec` is true, `FD_CLOEXEC` will be set on the file descriptor of EPoll.
+    /// If `close_exec` is true, `FD_CLOEXEC` will be set on the file descriptor of EPoll.
     ///
     /// ## Notes
     ///
     /// * `epoll_create1()` is the underlying syscall.
     pub fn create(
-        cloexec: bool,
-        max_events: i32,
+        close_exec: bool,
+        max_events: MaxEvents,
     ) -> io::Result<Self> {
-        let fd = epoll::create(cloexec)?;
-        let max_events = max_events
-            .try_into()
-            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
+        let fd = epoll::create(close_exec)?;
 
         Ok(Self {
             fd,
             datas: Default::default(),
-            buffer: Vec::with_capacity(max_events),
+            buffer: Vec::with_capacity(max_events.into()),
         })
     }
 
@@ -423,17 +426,13 @@ impl<T: DataKind> EPoll<T> {
     }
 
     /// This resize the buffer used to recieve event
-    /// as epoll use a i32 we also take an i32 and convert it to usize
-    /// this do at best
     pub fn resize_buffer(
         &mut self,
-        max_events: i32,
-    ) -> Result<(), TryFromIntError> {
-        let max_events = max_events.try_into()?;
-        self.buffer.resize_with(max_events, MaybeUninit::uninit);
+        max_events: MaxEvents,
+    ) {
+        self.buffer
+            .resize_with(max_events.into(), MaybeUninit::uninit);
         self.buffer.shrink_to_fit();
-
-        Ok(())
     }
 
     /// Safe wrapper for `libc::close`
@@ -461,4 +460,69 @@ impl<T: DataKind> EPoll<T> {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests_epoll {
+    use crate::*;
+
+    fn is_epoll_fd_close_exec(fd: RawFd) -> bool {
+        let ret = unsafe { libc::fcntl(fd, libc::F_GETFD, 0) };
+        if ret == -1 {
+            panic!("fcntl return an error {}", io::Error::last_os_error());
+        }
+
+        (ret & libc::FD_CLOEXEC) == libc::FD_CLOEXEC
+    }
+
+    #[test]
+    #[should_panic]
+    fn bad_fd() {
+        is_epoll_fd_close_exec(-1);
+    }
+
+    fn create<T: DataKind>(
+        close_exec: bool,
+        max_events: usize,
+    ) -> EPoll<T> {
+        let max_events = MaxEvents::new(max_events).unwrap();
+        let epoll = EPoll::create(close_exec, max_events).unwrap();
+
+        let ret = is_epoll_fd_close_exec(epoll.fd);
+        assert_eq!(ret, close_exec, "close_exec: {}", ret);
+
+        let capacity = epoll.buffer.capacity();
+        assert!(
+            capacity >= max_events,
+            "max_events: {} should be >= {}",
+            capacity,
+            max_events
+        );
+
+        epoll
+    }
+
+    #[test]
+    fn create_false() {
+        create::<U32>(false, 42);
+    }
+
+    #[test]
+    fn create_true() {
+        create::<U32>(true, 42);
+    }
+
+    #[test]
+    #[should_panic]
+    fn create_with_zero() {
+        create::<U32>(false, 0);
+    }
+
+    #[test]
+    fn create_with_one() {
+        create::<U32>(false, 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn create_with_max() {
+        create::<U32>(false, usize::MAX);
+    }
+}
