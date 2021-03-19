@@ -19,13 +19,25 @@ struct Client {
 
 impl Client {
     fn write_buffer(&mut self) -> io::Result<usize> {
+        log::trace!("write");
         let n = self.stream.write(&self.buffer)?;
+        log::trace!("write");
         self.buffer.drain(..n);
+        Ok(n)
+    }
+
+    fn read_buffer(&mut self) -> io::Result<usize> {
+        log::trace!("read_to_end");
+        let n = self.stream.read_to_end(&mut self.buffer)?;
+        log::trace!("read_to_end");
+
         Ok(n)
     }
 }
 
 fn main() {
+    pretty_env_logger::init();
+
     let max_events = MaxEvents::new(42).unwrap();
     let mut epoll = EPoll::new(true, max_events).unwrap();
 
@@ -82,7 +94,7 @@ fn main() {
                 }
                 Kind::Client(client) => {
                     if flags.contains(Flags::EPOLLIN) {
-                        match client.stream.read_to_end(&mut client.buffer) {
+                        match client.read_buffer() {
                             Ok(_) => {
                                 if let Err(e) = client.write_buffer() {
                                     eprint!("{}", e);

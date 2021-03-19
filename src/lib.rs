@@ -617,21 +617,25 @@ impl<T: DataKind> EPoll<T> {
         &mut self,
         timeout: TimeOut,
     ) -> io::Result<Wait<T>> {
-        let num_events = unsafe {
-            let ret = libc::epoll_wait(
-                self.as_raw_fd(),
-                self.buffer.as_mut_ptr() as *mut libc::epoll_event,
-                self.buffer.capacity() as i32,
-                timeout.into(),
-            );
-            if ret < 0 {
-                return Err(io::Error::last_os_error());
-            } else {
-                ret as usize
-            }
-        };
-
         unsafe {
+            let num_events = {
+                #[cfg(feature = "log")]
+                log::debug!("Enter epoll_wait");
+                let ret = libc::epoll_wait(
+                    self.as_raw_fd(),
+                    self.buffer.as_mut_ptr() as *mut libc::epoll_event,
+                    self.buffer.capacity() as i32,
+                    timeout.into(),
+                );
+                #[cfg(feature = "log")]
+                log::debug!("Exit epoll_wait");
+                if ret < 0 {
+                    return Err(io::Error::last_os_error());
+                } else {
+                    ret as usize
+                }
+            };
+
             self.buffer.set_len(num_events);
         }
 

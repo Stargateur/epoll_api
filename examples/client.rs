@@ -19,13 +19,17 @@ struct Server {
 
 impl Server {
     fn write_buffer(&mut self) -> io::Result<usize> {
+        log::trace!("write");
         let n = self.stream.write(&self.buf_write)?;
+        log::trace!("write");
         self.buf_write.drain(..n);
         Ok(n)
     }
 
     fn read_buffer(&mut self) -> io::Result<usize> {
+        log::trace!("read_to_end");
         let n = self.stream.read_to_end(&mut self.buf_read)?;
+        log::trace!("read_to_end");
 
         let valid = match std::str::from_utf8(&self.buf_read) {
             Ok(valid) => valid,
@@ -50,6 +54,8 @@ impl Server {
 }
 
 fn main() {
+    pretty_env_logger::init();
+
     let args: Vec<_> = std::env::args().collect();
 
     let max_events = MaxEvents::new(42).unwrap();
