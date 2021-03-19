@@ -18,9 +18,10 @@ bounded_integer::bounded_integer! {
     pub struct MaxEvents { 1..2147483647 }
 }
 
+// https://github.com/Kestrer/bounded-integer/issues/7
 bounded_integer::bounded_integer! {
     #[repr(i32)]
-    pub struct TimeOut { -1..2147483647 }
+    pub struct TimeOut { -1..2147483646 }
 }
 
 impl TimeOut {
@@ -254,6 +255,17 @@ static_assertions::assert_eq_size!(
     Event<Fd>,
     Event<U32>,
     Event<U64>,
+    RawEvent,
+);
+
+static_assertions::assert_eq_align!(
+    u8,
+    libc::epoll_event,
+    Event<Ptr<()>>,
+    Event<Fd>,
+    Event<U32>,
+    Event<U64>,
+    RawEvent,
 );
 
 impl<T: DataKind> Event<T> {
@@ -271,15 +283,13 @@ impl<T: DataKind> Event<T> {
     pub fn data(&self) -> &Data<T> {
         // https://github.com/rust-lang/rust/issues/46043
         // it's safe cause Event align is 1
-        static_assertions::assert_eq_align!(
-            u8,
-            libc::epoll_event,
-            Event<Ptr<()>>,
-            Event<Fd>,
-            Event<U32>,
-            Event<U64>,
-        );
         unsafe { &self.data }
+    }
+
+    pub fn data_mut(&mut self) -> &mut Data<T> {
+        // https://github.com/rust-lang/rust/issues/46043
+        // it's safe cause Event align is 1
+        unsafe { &mut self.data }
     }
 
     pub fn into_data(self) -> Data<T> {
@@ -376,6 +386,11 @@ pub trait EPollApi<T: DataKind> {
     /// if you want modify the direct value of Event<T>
     /// you will need to use `ctl_mod()`
     fn get_datas(&self) -> &HashMap<RawFd, Data<T>>;
+
+    fn get_data_mut(
+        &mut self,
+        fd: RawFd,
+    ) -> Option<&mut Data<T>>;
 }
 
 pub struct Wait<'a, T: DataKind> {
@@ -474,6 +489,13 @@ impl<T: DataKind> EPollApi<T> for Api<T> {
     fn get_datas(&self) -> &HashMap<RawFd, Data<T>> {
         &self.datas
     }
+
+    fn get_data_mut(
+        &mut self,
+        fd: RawFd,
+    ) -> Option<&mut Data<T>> {
+        self.datas.get_mut(&fd)
+    }
 }
 
 impl<T: DataKind> EPollApi<T> for EPoll<T> {
@@ -495,6 +517,13 @@ impl<T: DataKind> EPollApi<T> for EPoll<T> {
 
     fn get_datas(&self) -> &HashMap<RawFd, Data<T>> {
         self.api.get_datas()
+    }
+
+    fn get_data_mut(
+        &mut self,
+        fd: RawFd,
+    ) -> Option<&mut Data<T>> {
+        self.api.get_data_mut(fd)
     }
 }
 

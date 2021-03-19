@@ -1,9 +1,8 @@
 use epoll_api::{Data, EPoll, EPollApi, Event, Flags, MaxEvents, TimeOut};
-use libc::EINVAL;
 
 use std::{
     collections::VecDeque,
-    io::{BufWriter, ErrorKind},
+    io::{self, ErrorKind, Read, Write},
     net::{Ipv6Addr, TcpListener, TcpStream},
     os::unix::io::AsRawFd,
 };
@@ -15,7 +14,15 @@ enum Kind {
 
 struct Client {
     stream: TcpStream,
-    buf_write: Vec<u8>,
+    buffer: Vec<u8>,
+}
+
+impl Client {
+    fn write_buffer(&mut self) -> io::Result<usize> {
+        let n = self.stream.write(&self.buffer)?;
+        self.buffer.drain(..n);
+        Ok(n)
+    }
 }
 
 fn main() {
@@ -43,9 +50,10 @@ fn main() {
     'run: loop {
         let wait = epoll.wait(TimeOut::INFINITE).unwrap();
         for event in wait.events {
-            match event.data().ptr() {
+            let flags = event.flags();
+            match event.data_mut().ptr_mut() {
                 Kind::Server(listener) => {
-                    if event.flags().contains(Flags::EPOLLIN) {
+                    if flags.contains(Flags::EPOLLIN) {
                         loop {
                             match listener.accept() {
                                 Ok((stream, addr)) => {
@@ -53,10 +61,10 @@ fn main() {
 
                                     let fd = stream.as_raw_fd();
                                     let event = Event::new(
-                                        Flags::EPOLLIN | Flags::EPOLLET,
+                                        Flags::EPOLLIN | Flags::EPOLLOUT | Flags::EPOLLET,
                                         Data::new_ptr(Kind::Client(Client {
                                             stream,
-                                            buf_write: Vec::new(),
+                                            buffer: Default::default(),
                                         })),
                                     );
 
@@ -72,7 +80,29 @@ fn main() {
                         }
                     }
                 }
-                Kind::Client(client) => {}
+                Kind::Client(client) => {
+                    if flags.contains(Flags::EPOLLIN) {
+                        match client.stream.read_to_end(&mut client.buffer) {
+                            Ok(_) => {
+                                if let Err(e) = client.write_buffer() {
+                                    eprint!("{}", e);
+                                    dels.push_back(client.stream.as_raw_fd());
+                                }
+                            }
+                            Err(e) => {
+                                if e.kind() != ErrorKind::WouldBlock {
+                                    dels.push_back(client.stream.as_raw_fd());
+                                }
+                            }
+                        }
+                    }
+                    if flags.contains(Flags::EPOLLOUT) {
+                        if let Err(e) = client.write_buffer() {
+                            eprint!("{}", e);
+                            dels.push_back(client.stream.as_raw_fd());
+                        }
+                    }
+                }
             }
         }
 
@@ -91,34 +121,4 @@ fn main() {
     }
 
     epoll.drop();
-    // for stream in listener.incoming() {
-    //     match stream {
-    //         Ok(stream) => {
-    //             println!("new client!");
-    //         }
-    //         Err(e) => { /* connection failed */ }
-    //     }
-    // }
 }
-
-//     for (n = 0; n < nfds; ++n) {
-//         if (events[n].data.fd == listen_sock) {
-//             conn_sock = accept(listen_sock,
-//                                (struct sockaddr *) &addr, &addrlen);
-//             if (conn_sock == -1) {
-//                 perror("accept");
-//                 exit(EXIT_FAILURE);
-//             }
-//             setnonblocking(conn_sock);
-//             ev.events = EPOLLIN | EPOLLET;
-//             ev.data.fd = conn_sock;
-//             if (epoll_ctl(epollfd, EPOLL_CTL_ADD, conn_sock,
-//                         &ev) == -1) {
-//                 perror("epoll_ctl: conn_sock");
-//                 exit(EXIT_FAILURE);
-//             }
-//         } else {
-//             do_use_fd(events[n].data.fd);
-//         }
-//     }
-// }
