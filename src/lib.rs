@@ -1,4 +1,5 @@
 pub mod data_kind;
+pub mod utils;
 pub use epoll::{ControlOptions, Events as Flags};
 
 use std::{
@@ -99,7 +100,6 @@ impl Into<usize> for MaxEvents {
     }
 }
 
-/// RawEvent equivalent
 #[repr(C)]
 #[cfg_attr(
     any(
@@ -117,14 +117,20 @@ pub struct Event<T: DataKind> {
     data: Data<T>,
 }
 
-static_assertions::assert_eq_size!(Event<Ptr<()>>, Event<Fd>, Event<U32>, Event<U64>, RawEvent,);
+static_assertions::assert_eq_size!(
+    Event<DataPtr<()>>,
+    Event<DataFd>,
+    Event<DataU32>,
+    Event<DataU64>,
+    RawEvent,
+);
 
 static_assertions::assert_eq_align!(
     u8,
-    Event<Ptr<()>>,
-    Event<Fd>,
-    Event<U32>,
-    Event<U64>,
+    Event<DataPtr<()>>,
+    Event<DataFd>,
+    Event<DataU32>,
+    Event<DataU64>,
     RawEvent,
 );
 
@@ -183,7 +189,7 @@ where
 
 /// This represent an EPoll instance
 /// You will need to choice between 4 datas types
-/// RawFd, u32, u64, Ptr<T>
+/// RawFd, u32, u64, DataPtr<T>
 /// This is enforced cause epoll doesn't allow to diffenciate
 /// the union its use internally to stock user data
 /// and anyway mix between data type don't make much sense
@@ -192,7 +198,7 @@ where
 ///
 /// Notice that while this is safe this currently can't prevent leak
 /// You will need to handle this a little yourself by calling `into_inner()`
-/// when you use the Ptr<T> type
+/// when you use the DataPtr<T> type
 pub struct EPoll<T: DataKind> {
     api: Api<T>,
     buffer: Vec<MaybeUninit<Event<T>>>,
@@ -216,7 +222,7 @@ where
     }
 }
 
-impl<T> EPoll<BoxPtr<T>> {
+impl<T> EPoll<DataBox<T>> {
     pub fn drop(self) {
         let (_, datas) = self.close();
 
@@ -242,7 +248,7 @@ pub trait EPollApi<T: DataKind> {
 
     /// This return all data associed with this epoll fd
     /// You CAN'T modify direclt Event<T> the only thing you can modify
-    /// is Event<Ptr<T>> because it's a reference
+    /// is Event<DataPtr<T>> because it's a reference
     /// if you want modify the direct value of Event<T>
     /// you will need to use `ctl_mod()`
     fn get_datas(&self) -> &HashMap<RawFd, Data<T>>;
@@ -453,8 +459,8 @@ impl<T: DataKind> EPoll<T> {
 
     /// Safe wrapper for `libc::close`
     /// this will return the datas
-    /// For Event<Ptr<T>> only if you want to free ressource
-    /// you will need to call `Event<Ptr<T>>::into_inner()`
+    /// For Event<DataPtr<T>> only if you want to free ressource
+    /// you will need to call `Event<DataPtr<T>>::into_inner()`
     /// This could be improve if we could specialize Drop
     /// https://github.com/rust-lang/rust/issues/46893
     pub fn close(self) -> (io::Result<()>, HashMap<RawFd, Data<T>>) {
@@ -556,90 +562,28 @@ mod tests_epoll {
 
     #[test]
     fn create_false() {
-        create::<U32>(false, 42);
+        create::<DataU32>(false, 42);
     }
 
     #[test]
     fn create_true() {
-        create::<U32>(true, 42);
+        create::<DataU32>(true, 42);
     }
 
     #[test]
     #[should_panic]
     fn create_with_zero() {
-        create::<U32>(false, 0);
+        create::<DataU32>(false, 0);
     }
 
     #[test]
     fn create_with_one() {
-        create::<U32>(false, 1);
+        create::<DataU32>(false, 1);
     }
 
     #[test]
     #[should_panic]
     fn create_with_max() {
-        create::<U32>(false, usize::MAX);
-    }
-}
-
-pub mod utils {
-    use std::{
-        io::{self, ErrorKind, Read},
-        os::unix::io::AsRawFd,
-    };
-
-    /// This function assume the Read implementation don't do anything stupid sue me
-    pub fn read_until_wouldblock<R: Read>(
-        mut reader: R,
-        output: &mut Vec<u8>,
-        read_size: usize,
-    ) -> io::Result<()> {
-        log::trace!("=> read_until_wouldblock");
-        loop {
-            let available = output.capacity() - output.len();
-            if available < read_size {
-                output.reserve(read_size - available);
-            }
-            let buffer = unsafe {
-                std::slice::from_raw_parts_mut(output.as_mut_ptr().add(output.len()), read_size)
-            };
-            match reader.read(buffer) {
-                Ok(n) => {
-                    if n == 0 {
-                        return Err(ErrorKind::ConnectionAborted.into());
-                    }
-
-                    unsafe { output.set_len(output.len() + n) }
-                }
-                Err(e) => {
-                    if e.kind() == ErrorKind::WouldBlock {
-                        break;
-                    } else {
-                        return Err(e);
-                    }
-                }
-            }
-        }
-        log::trace!("<= read_until_wouldblock");
-
-        Ok(())
-    }
-
-    pub fn set_non_blocking<Fd: AsRawFd>(fd: Fd) -> io::Result<()> {
-        let fd = fd.as_raw_fd();
-        unsafe {
-            let flags = libc::fcntl(fd, libc::F_GETFL);
-            if flags == -1 {
-                Err(io::Error::last_os_error())
-            } else if flags & libc::O_NONBLOCK != libc::O_NONBLOCK {
-                if libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) == -1 {
-                    Err(io::Error::last_os_error())
-                } else {
-                    Ok(())
-                }
-            } else {
-                Ok(())
-            }
-        }
+        create::<DataU32>(false, usize::MAX);
     }
 }

@@ -41,24 +41,24 @@ static_assertions::assert_eq_align!(u8, libc::epoll_event, RawEvent,);
 /// Regroup DakaKind type
 pub trait DataKind {}
 
-// TODO write a macro_delc! for Ptr Fd U32 and U64
+// TODO write a macro_delc! for DataPtr DataFd DataU32 and DataU64
 
 /// This represent Arc mode
 #[derive(Debug, Copy, Clone)]
-pub struct ArcPtr<T> {
+pub struct DataArc<T> {
     phantom: PhantomData<Arc<T>>,
 }
-impl<T> DataKind for ArcPtr<T> {}
+impl<T> DataKind for DataArc<T> {}
 
 /// This represent Rc mode
 #[derive(Debug, Copy, Clone)]
-pub struct RcPtr<T> {
+pub struct DataRc<T> {
     phantom: PhantomData<Rc<T>>,
 }
-impl<T> DataKind for RcPtr<T> {}
+impl<T> DataKind for DataRc<T> {}
 
 /// Data is used to represent user data in EPoll
-/// You can only choice from 4 types Ptr<T>, Fd, U32, U64
+/// You can only choice from 4 types DataPtr<T>, DataFd, DataU32, DataU64
 /// use the appropriate function to create them
 pub struct Data<T: DataKind> {
     raw: RawData,
@@ -75,12 +75,12 @@ impl<T: DataKind> Data<T> {
     }
 }
 
-/// This represent Fd mode
+/// This represent DataFd mode
 #[derive(Debug, Copy, Clone)]
-pub struct Fd;
-impl DataKind for Fd {}
+pub struct DataFd;
+impl DataKind for DataFd {}
 
-impl Data<Fd> {
+impl Data<DataFd> {
     pub fn new_fd(fd: RawFd) -> Self {
         Self {
             raw: RawData { fd },
@@ -93,36 +93,36 @@ impl Data<Fd> {
     }
 }
 
-impl AsRawFd for Data<Fd> {
+impl AsRawFd for Data<DataFd> {
     fn as_raw_fd(&self) -> RawFd {
         self.fd()
     }
 }
 
-impl Clone for Data<Fd> {
+impl Clone for Data<DataFd> {
     fn clone(&self) -> Self {
         Self::new_fd(self.fd())
     }
 }
 
-impl Debug for Data<Fd> {
+impl Debug for Data<DataFd> {
     fn fmt(
         &self,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
-        f.debug_struct("Data<Fd>")
+        f.debug_struct("Data<DataFd>")
             .field("raw", &self.fd())
             .field("data_kind", &self.data_kind)
             .finish()
     }
 }
 
-/// This represent U32 mode
+/// This represent DataU32 mode
 #[derive(Debug, Copy, Clone)]
-pub struct U32;
-impl DataKind for U32 {}
+pub struct DataU32;
+impl DataKind for DataU32 {}
 
-impl Data<U32> {
+impl Data<DataU32> {
     pub fn new_u32(_u32: u32) -> Self {
         Self {
             raw: RawData { _u32 },
@@ -135,30 +135,30 @@ impl Data<U32> {
     }
 }
 
-impl Clone for Data<U32> {
+impl Clone for Data<DataU32> {
     fn clone(&self) -> Self {
         Self::new_u32(self._u32())
     }
 }
 
-impl Debug for Data<U32> {
+impl Debug for Data<DataU32> {
     fn fmt(
         &self,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
-        f.debug_struct("Data<U32>")
+        f.debug_struct("Data<DataU32>")
             .field("raw", &self._u32())
             .field("data_kind", &self.data_kind)
             .finish()
     }
 }
 
-/// This represent U64 mode
+/// This represent DataU64 mode
 #[derive(Debug, Copy, Clone)]
-pub struct U64;
-impl DataKind for U64 {}
+pub struct DataU64;
+impl DataKind for DataU64 {}
 
-impl Data<U64> {
+impl Data<DataU64> {
     pub fn new_u64(_u64: u64) -> Self {
         Self {
             raw: RawData { _u64 },
@@ -171,32 +171,32 @@ impl Data<U64> {
     }
 }
 
-impl Clone for Data<U64> {
+impl Clone for Data<DataU64> {
     fn clone(&self) -> Self {
         Self::new_u64(self._u64())
     }
 }
 
-impl Debug for Data<U64> {
+impl Debug for Data<DataU64> {
     fn fmt(
         &self,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
-        f.debug_struct("Data<U64>")
+        f.debug_struct("Data<DataU64>")
             .field("raw", &self._u64())
             .field("data_kind", &self.data_kind)
             .finish()
     }
 }
 
-/// This represent Ptr mode
+/// This represent DataPtr mode
 #[derive(Debug, Copy, Clone)]
-pub struct Ptr<T> {
+pub struct DataPtr<T> {
     phantom: PhantomData<*mut T>,
 }
-impl<T> DataKind for Ptr<T> {}
+impl<T> DataKind for DataPtr<T> {}
 
-impl<T> Data<Ptr<T>> {
+impl<T> Data<DataPtr<T>> {
     pub fn new_ptr(t: *mut T) -> Self {
         let ptr = t as *mut _;
         Self {
@@ -214,12 +214,12 @@ impl<T> Data<Ptr<T>> {
     }
 }
 
-impl<T: Debug> Debug for Data<Ptr<T>> {
+impl<T: Debug> Debug for Data<DataPtr<T>> {
     fn fmt(
         &self,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
-        f.debug_struct("Data<Ptr<T>>")
+        f.debug_struct("Data<DataPtr<T>>")
             .field("ptr", &self.ptr())
             .field("data_kind", &self.data_kind)
             .finish()
@@ -228,12 +228,12 @@ impl<T: Debug> Debug for Data<Ptr<T>> {
 
 /// This represent Box mode
 #[derive(Debug, Copy, Clone)]
-pub struct BoxPtr<T> {
+pub struct DataBox<T> {
     phantom: PhantomData<Box<T>>,
 }
-impl<T> DataKind for BoxPtr<T> {}
+impl<T> DataKind for DataBox<T> {}
 
-impl<T> Data<BoxPtr<T>> {
+impl<T> Data<DataBox<T>> {
     pub fn new_box<B>(b: B) -> Self
     where
         B: Into<Box<T>>,
@@ -250,49 +250,49 @@ impl<T> Data<BoxPtr<T>> {
     }
 }
 
-impl<T: Debug> Debug for Data<BoxPtr<T>> {
+impl<T: Debug> Debug for Data<DataBox<T>> {
     fn fmt(
         &self,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
-        f.debug_struct("Data<BoxPtr<T>>")
+        f.debug_struct("Data<DataBox<T>>")
             .field("inner", self.as_ref())
             .field("data_kind", &self.data_kind)
             .finish()
     }
 }
 
-impl<T: Clone> Clone for Data<BoxPtr<T>> {
+impl<T: Clone> Clone for Data<DataBox<T>> {
     fn clone(&self) -> Self {
         Self::new_box(self.as_ref().clone())
     }
 }
 
-impl<T> Borrow<T> for Data<BoxPtr<T>> {
+impl<T> Borrow<T> for Data<DataBox<T>> {
     fn borrow(&self) -> &T {
         self.as_ref()
     }
 }
 
-impl<T> BorrowMut<T> for Data<BoxPtr<T>> {
+impl<T> BorrowMut<T> for Data<DataBox<T>> {
     fn borrow_mut(&mut self) -> &mut T {
         self.as_mut()
     }
 }
 
-impl<T> AsRef<T> for Data<BoxPtr<T>> {
+impl<T> AsRef<T> for Data<DataBox<T>> {
     fn as_ref(&self) -> &T {
         unsafe { &*(self.raw.ptr as *const T) }
     }
 }
 
-impl<T> AsMut<T> for Data<BoxPtr<T>> {
+impl<T> AsMut<T> for Data<DataBox<T>> {
     fn as_mut(&mut self) -> &mut T {
         unsafe { &mut *(self.raw.ptr as *mut T) }
     }
 }
 
-impl<T> Deref for Data<BoxPtr<T>> {
+impl<T> Deref for Data<DataBox<T>> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -300,13 +300,13 @@ impl<T> Deref for Data<BoxPtr<T>> {
     }
 }
 
-impl<T> DerefMut for Data<BoxPtr<T>> {
+impl<T> DerefMut for Data<DataBox<T>> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut()
     }
 }
 
-impl<T> From<Box<T>> for Data<BoxPtr<T>> {
+impl<T> From<Box<T>> for Data<DataBox<T>> {
     fn from(t: Box<T>) -> Self {
         Self::new_box(t)
     }

@@ -1,6 +1,6 @@
 use epoll_api::{
     data_kind::Data,
-    utils::{read_until_wouldblock, set_non_blocking},
+    utils::{read_until_wouldblock, set_non_blocking, State},
     EPoll, EPollApi, Event, Flags, TimeOut,
 };
 
@@ -102,8 +102,15 @@ fn main() {
                 Kind::Server(server) => {
                     if flags.contains(Flags::EPOLLIN) {
                         match read_until_wouldblock(&server.stream, &mut server.buf_read, 4096) {
-                            Ok(_) => server.use_buffer(),
-                            Err(e) => {
+                            State::EOF(_) => {
+                                server.use_buffer();
+                                log::info!("Server disconnect");
+                                break 'run;
+                            }
+                            State::WouldBlock(_) => {
+                                server.use_buffer();
+                            }
+                            State::Error(e) => {
                                 log::error!("{}", e);
                                 break 'run;
                             }
@@ -125,13 +132,20 @@ fn main() {
                         };
 
                         match read_until_wouldblock(stdin, &mut server.buf_write, 4096) {
-                            Ok(_) => {
+                            State::EOF(_) => {
+                                if let Err(e) = server.write_buffer() {
+                                    log::error!("{}", e);
+                                }
+                                // we should wait for server response
+                                break 'run;
+                            }
+                            State::WouldBlock(_) => {
                                 if let Err(e) = server.write_buffer() {
                                     log::error!("{}", e);
                                     break 'run;
                                 }
                             }
-                            Err(e) => {
+                            State::Error(e) => {
                                 log::error!("{}", e);
                                 if e.kind() != ErrorKind::WouldBlock {
                                     break 'run;

@@ -1,5 +1,7 @@
 use epoll_api::{
-    data_kind::Data, utils::read_until_wouldblock, EPoll, EPollApi, Event, Flags, TimeOut,
+    data_kind::Data,
+    utils::{read_until_wouldblock, State},
+    EPoll, EPollApi, Event, Flags, TimeOut,
 };
 
 use std::{
@@ -93,16 +95,21 @@ fn main() {
                 Kind::Client(client) => {
                     if flags.contains(Flags::EPOLLIN) {
                         match read_until_wouldblock(&client.stream, &mut client.buffer, 4096) {
-                            Ok(_) => {
+                            State::WouldBlock(_) => {
                                 if let Err(e) = client.write_buffer() {
                                     eprint!("{}", e);
                                     dels.push_back(client.stream.as_raw_fd());
                                 }
                             }
-                            Err(e) => {
-                                if e.kind() != ErrorKind::WouldBlock {
-                                    dels.push_back(client.stream.as_raw_fd());
+                            State::EOF(_) => {
+                                if let Err(e) = client.write_buffer() {
+                                    eprint!("{}", e);
                                 }
+                                dels.push_back(client.stream.as_raw_fd());
+                            }
+                            State::Error(e) => {
+                                log::error!("{}", e);
+                                dels.push_back(client.stream.as_raw_fd());
                             }
                         }
                     }
