@@ -20,12 +20,16 @@ struct Client {
 }
 
 impl Client {
-    fn write_buffer(&mut self) -> io::Result<usize> {
-        log::trace!("write");
-        let n = self.stream.write(&self.buffer)?;
-        log::trace!("write");
-        self.buffer.drain(..n);
-        Ok(n)
+    fn write_buffer(&mut self) -> io::Result<()> {
+        log::trace!("=> write");
+        if !self.buffer.is_empty() {
+            let n = self.stream.write(&self.buffer)?;
+            log::trace!("writen: {}", n);
+            self.buffer.drain(..n);
+        }
+        log::trace!("<= write");
+
+        Ok(())
     }
 }
 
@@ -66,7 +70,7 @@ fn main() {
                                     println!("New client: {}", addr);
 
                                     let fd = stream.as_raw_fd();
-                                    listener.set_nonblocking(true).unwrap();
+                                    stream.set_nonblocking(true).unwrap();
                                     let event = Event::new(
                                         Flags::EPOLLIN | Flags::EPOLLOUT | Flags::EPOLLET,
                                         Data::new_ptr(Kind::Client(Client {
@@ -89,7 +93,7 @@ fn main() {
                 }
                 Kind::Client(client) => {
                     if flags.contains(Flags::EPOLLIN) {
-                        match read_until_wouldblock(&client.stream, &mut client.buffer) {
+                        match read_until_wouldblock(&client.stream, &mut client.buffer, 4096) {
                             Ok(_) => {
                                 if let Err(e) = client.write_buffer() {
                                     eprint!("{}", e);

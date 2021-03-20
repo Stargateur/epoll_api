@@ -729,20 +729,28 @@ pub mod utils {
         os::unix::io::AsRawFd,
     };
 
+    /// This function assume the Read implementation don't do anything stupid sue me
     pub fn read_until_wouldblock<R: Read>(
         mut reader: R,
         output: &mut Vec<u8>,
+        read_size: usize,
     ) -> io::Result<()> {
         log::trace!("=> read_until_wouldblock");
-        let mut buffer = [0; 1024];
         loop {
-            match reader.read(&mut buffer) {
+            let available = output.capacity() - output.len();
+            if available < read_size {
+                output.reserve(read_size - available);
+            }
+            let buffer = unsafe {
+                std::slice::from_raw_parts_mut(output.as_mut_ptr().add(output.len()), read_size)
+            };
+            match reader.read(buffer) {
                 Ok(n) => {
                     if n == 0 {
                         return Err(ErrorKind::ConnectionAborted.into());
                     }
 
-                    output.extend_from_slice(&buffer[..n]);
+                    unsafe { output.set_len(output.len() + n) }
                 }
                 Err(e) => {
                     if e.kind() == ErrorKind::WouldBlock {

@@ -4,7 +4,7 @@ use epoll_api::{
 };
 
 use std::{
-    io::{self, ErrorKind, Read, Write},
+    io::{self, ErrorKind, Write},
     net::{Ipv6Addr, TcpStream},
     os::unix::io::AsRawFd,
 };
@@ -21,12 +21,16 @@ struct Server {
 }
 
 impl Server {
-    fn write_buffer(&mut self) -> io::Result<usize> {
-        log::trace!("start write");
-        let n = self.stream.write(&self.buf_write)?;
-        log::trace!("end write");
-        self.buf_write.drain(..n);
-        Ok(n)
+    fn write_buffer(&mut self) -> io::Result<()> {
+        log::trace!("=> write");
+        if !self.buf_write.is_empty() {
+            let n = self.stream.write(&self.buf_write)?;
+            log::trace!("writen: {}", n);
+            self.buf_write.drain(..n);
+        }
+        log::trace!("<= write");
+
+        Ok(())
     }
 
     fn use_buffer(&mut self) {
@@ -43,7 +47,7 @@ impl Server {
             }
         };
 
-        println!("{}", valid);
+        print!("{}", valid);
 
         let to_drain = ..valid.len();
         self.buf_read.drain(to_drain);
@@ -97,7 +101,7 @@ fn main() {
             match kind {
                 Kind::Server(server) => {
                     if flags.contains(Flags::EPOLLIN) {
-                        match read_until_wouldblock(&server.stream, &mut server.buf_read) {
+                        match read_until_wouldblock(&server.stream, &mut server.buf_read, 4096) {
                             Ok(_) => server.use_buffer(),
                             Err(e) => {
                                 log::error!("{}", e);
@@ -120,7 +124,7 @@ fn main() {
                             Kind::Stdin(_) => unreachable!(),
                         };
 
-                        match stdin.read_to_end(&mut server.buf_write) {
+                        match read_until_wouldblock(stdin, &mut server.buf_write, 4096) {
                             Ok(_) => {
                                 if let Err(e) = server.write_buffer() {
                                     log::error!("{}", e);
