@@ -1,6 +1,7 @@
 use epoll_api::{
+    data_kind::Data,
     utils::{read_until_wouldblock, set_non_blocking},
-    Data, EPoll, EPollApi, Event, Flags, MaxEvents, TimeOut,
+    EPoll, EPollApi, Event, Flags, TimeOut,
 };
 
 use std::{
@@ -59,8 +60,7 @@ fn main() {
 
     let args: Vec<_> = std::env::args().collect();
 
-    let max_events = MaxEvents::new(42).unwrap();
-    let mut epoll = EPoll::new(true, max_events).unwrap();
+    let mut epoll = EPoll::new(true, 42).unwrap();
     let port = args[1].parse::<u16>().unwrap();
 
     let stream = TcpStream::connect((Ipv6Addr::UNSPECIFIED, port)).unwrap();

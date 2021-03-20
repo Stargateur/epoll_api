@@ -1,5 +1,5 @@
 use epoll_api::{
-    utils::read_until_wouldblock, Data, EPoll, EPollApi, Event, Flags, MaxEvents, TimeOut,
+    data_kind::Data, utils::read_until_wouldblock, EPoll, EPollApi, Event, Flags, TimeOut,
 };
 
 use std::{
@@ -36,8 +36,7 @@ impl Client {
 fn main() {
     pretty_env_logger::init();
 
-    let max_events = MaxEvents::new(42).unwrap();
-    let mut epoll = EPoll::new(true, max_events).unwrap();
+    let mut epoll = EPoll::new(true, 42).unwrap();
 
     let listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, 0)).unwrap();
     listener.set_nonblocking(true).unwrap();
