@@ -72,7 +72,7 @@ fn main() {
     let fd = stream.as_raw_fd();
     let event = Event::new(
         Flags::EPOLLIN | Flags::EPOLLOUT | Flags::EPOLLET,
-        Data::new_ptr(Kind::Server(Server {
+        Data::new_box(Kind::Server(Server {
             stream,
             buf_write: Default::default(),
             buf_read: Default::default(),
@@ -87,7 +87,7 @@ fn main() {
         set_non_blocking(fd).unwrap();
         let event = Event::new(
             Flags::EPOLLIN | Flags::EPOLLET,
-            Data::new_ptr(Kind::Stdin(stdin)),
+            Data::new_box(Kind::Stdin(stdin)),
         );
         epoll.add(fd, event).unwrap();
     }
@@ -96,7 +96,7 @@ fn main() {
         let wait = epoll.wait(TimeOut::INFINITE).unwrap();
         for event in wait.events {
             let flags = event.flags();
-            let kind = event.data_mut().ptr_mut();
+            let kind = event.data_mut().as_mut();
 
             match kind {
                 Kind::Server(server) => {
@@ -118,7 +118,7 @@ fn main() {
                 }
                 Kind::Stdin(stdin) => {
                     if flags.contains(Flags::EPOLLIN) {
-                        let server = wait.api.get_data_mut(fd).unwrap().ptr_mut();
+                        let server = wait.api.get_data_mut(fd).unwrap().as_mut();
                         let server = match server {
                             Kind::Server(server) => server,
                             Kind::Stdin(_) => unreachable!(),

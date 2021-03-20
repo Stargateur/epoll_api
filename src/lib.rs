@@ -216,12 +216,12 @@ where
     }
 }
 
-impl<T> EPoll<Ptr<T>> {
+impl<T> EPoll<BoxPtr<T>> {
     pub fn drop(self) {
         let (_, datas) = self.close();
 
         for (_, data) in datas {
-            data.into_inner();
+            data.into_box();
         }
     }
 }

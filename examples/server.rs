@@ -48,7 +48,7 @@ fn main() {
         let fd = listener.as_raw_fd();
         let event = Event::new(
             Flags::EPOLLIN | Flags::EPOLLET,
-            Data::new_ptr(Kind::Server(listener)),
+            Data::new_box(Kind::Server(listener)),
         );
 
         epoll.add(fd, event).unwrap();
@@ -60,7 +60,7 @@ fn main() {
         let wait = epoll.wait(TimeOut::INFINITE).unwrap();
         for event in wait.events {
             let flags = event.flags();
-            match event.data_mut().ptr_mut() {
+            match event.data_mut().as_mut() {
                 Kind::Server(listener) => {
                     if flags.contains(Flags::EPOLLIN) {
                         loop {
@@ -72,7 +72,7 @@ fn main() {
                                     stream.set_nonblocking(true).unwrap();
                                     let event = Event::new(
                                         Flags::EPOLLIN | Flags::EPOLLOUT | Flags::EPOLLET,
-                                        Data::new_ptr(Kind::Client(Client {
+                                        Data::new_box(Kind::Client(Client {
                                             stream,
                                             buffer: Default::default(),
                                         })),
@@ -117,7 +117,7 @@ fn main() {
         }
 
         while let Some(x) = dels.pop_front() {
-            let data = epoll.del(x).unwrap().into_inner();
+            let data = epoll.del(x).unwrap().into_box();
 
             match *data {
                 Kind::Server(_) => {
