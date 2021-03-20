@@ -14,23 +14,35 @@ use std::{
 use data_kind::*;
 
 #[repr(transparent)]
+#[derive(Clone, Copy, Debug)]
 pub struct TimeOut {
     inner: libc::c_int,
 }
 
 impl TimeOut {
     pub const INFINITE: Self = Self { inner: -1 };
-    pub const ZERO: Self = Self { inner: 0 };
+    pub const INSTANT: Self = Self { inner: 0 };
     pub const MAX: Self = Self {
         inner: libc::c_int::MAX,
     };
 
-    pub fn new(inner: libc::c_int) -> Result<Self, libc::c_int> {
-        if inner < 0 {
-            Err(inner)
+    pub const fn new(n: libc::c_int) -> Result<Self, libc::c_int> {
+        if Self::in_range(n) {
+            Err(n)
         } else {
-            Ok(Self { inner })
+            Ok(unsafe { Self::new_unchecked(n) })
         }
+    }
+
+    /// # Safety
+    ///
+    /// only safe if assert_eq!(Self::in_range(n), true)
+    pub const unsafe fn new_unchecked(inner: libc::c_int) -> Self {
+        Self { inner }
+    }
+
+    pub const fn in_range(n: libc::c_int) -> bool {
+        Self::INFINITE.inner <= n && n <= Self::MAX.inner
     }
 }
 
@@ -47,16 +59,17 @@ impl Into<libc::c_int> for TimeOut {
 }
 
 impl From<libc::c_int> for TimeOut {
-    fn from(inner: libc::c_int) -> Self {
-        if inner < 0 {
+    fn from(n: libc::c_int) -> Self {
+        if n < Self::INFINITE.inner {
             Self::INFINITE
         } else {
-            Self { inner }
+            unsafe { Self::new_unchecked(n) }
         }
     }
 }
 
 #[repr(transparent)]
+#[derive(Clone, Copy, Debug)]
 pub struct MaxEvents {
     inner: usize,
 }
@@ -66,31 +79,43 @@ impl MaxEvents {
     pub const MAX: Self = Self {
         inner: libc::c_int::MAX as usize,
     };
+    pub const DEFAULT: Self = Self { inner: 64 };
 
-    pub fn new(inner: usize) -> Result<Self, usize> {
-        if inner < Self::MIN.into() {
-            Err(inner)
+    pub const fn new(n: usize) -> Result<Self, usize> {
+        if Self::in_range(n) {
+            Err(n)
         } else {
-            Ok(Self { inner })
+            Ok(unsafe { Self::new_unchecked(n) })
         }
+    }
+
+    /// # Safety
+    ///
+    /// only safe if assert_eq!(Self::in_range(n), true)
+    pub const unsafe fn new_unchecked(inner: usize) -> Self {
+        Self { inner }
+    }
+
+    pub const fn in_range(n: usize) -> bool {
+        Self::MIN.inner <= n && n <= Self::MAX.inner
     }
 }
 
 impl From<usize> for MaxEvents {
-    fn from(inner: usize) -> Self {
-        if inner == 0 {
+    fn from(n: usize) -> Self {
+        if n < Self::MIN.inner {
             Self::default()
-        } else if inner > Self::MAX.into() {
+        } else if n > Self::MAX.inner {
             Self::MAX
         } else {
-            Self { inner }
+            unsafe { Self::new_unchecked(n) }
         }
     }
 }
 
 impl Default for MaxEvents {
     fn default() -> Self {
-        Self { inner: 64 }
+        Self::DEFAULT
     }
 }
 
@@ -571,7 +596,6 @@ mod tests_epoll {
     }
 
     #[test]
-    #[should_panic]
     fn create_with_zero() {
         create::<DataU32>(false, 0);
     }
@@ -585,5 +609,20 @@ mod tests_epoll {
     #[should_panic]
     fn create_with_max() {
         create::<DataU32>(false, usize::MAX);
+    }
+}
+
+#[cfg(test)]
+mod tests_timeout {
+    use crate::TimeOut;
+
+    fn timeout_new(timeout: libc::c_int) {
+        let result = TimeOut::new(timeout).unwrap();
+
+        assert_eq!(timeout, result.into());
+    }
+    #[test]
+    fn timeout_new_zero() {
+        timeout_new(0);
     }
 }

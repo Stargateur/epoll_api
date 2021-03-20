@@ -6,7 +6,7 @@ use std::{
 #[must_use]
 pub enum State {
     WouldBlock(usize),
-    EOF(usize),
+    EndOfFile(usize),
     Error(io::Error),
 }
 
@@ -29,7 +29,7 @@ pub fn read_until_wouldblock<R: Read>(
         match reader.read(buffer) {
             Ok(n) => {
                 if n == 0 {
-                    break State::EOF(total);
+                    break State::EndOfFile(total);
                 }
                 total += n;
 

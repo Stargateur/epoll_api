@@ -101,7 +101,7 @@ fn main() {
                                     dels.push_back(client.stream.as_raw_fd());
                                 }
                             }
-                            State::EOF(_) => {
+                            State::EndOfFile(_) => {
                                 if let Err(e) = client.write_buffer() {
                                     eprint!("{}", e);
                                 }

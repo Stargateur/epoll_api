@@ -102,7 +102,7 @@ fn main() {
                 Kind::Server(server) => {
                     if flags.contains(Flags::EPOLLIN) {
                         match read_until_wouldblock(&server.stream, &mut server.buf_read, 4096) {
-                            State::EOF(_) => {
+                            State::EndOfFile(_) => {
                                 server.use_buffer();
                                 log::info!("Server disconnect");
                                 break 'run;
@@ -132,7 +132,7 @@ fn main() {
                         };
 
                         match read_until_wouldblock(stdin, &mut server.buf_write, 4096) {
-                            State::EOF(_) => {
+                            State::EndOfFile(_) => {
                                 if let Err(e) = server.write_buffer() {
                                     log::error!("{}", e);
                                 }
