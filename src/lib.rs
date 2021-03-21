@@ -1,6 +1,8 @@
 pub mod data_kind;
+mod timeout;
 pub mod utils;
 pub use epoll::{ControlOptions, Events as Flags};
+pub use timeout::TimeOut;
 
 use std::{
     collections::hash_map::{Entry, HashMap},
@@ -14,62 +16,7 @@ use std::{
 use data_kind::*;
 
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug)]
-pub struct TimeOut {
-    inner: libc::c_int,
-}
-
-impl TimeOut {
-    pub const INFINITE: Self = Self { inner: -1 };
-    pub const INSTANT: Self = Self { inner: 0 };
-    pub const MAX: Self = Self {
-        inner: libc::c_int::MAX,
-    };
-
-    pub const fn new(n: libc::c_int) -> Result<Self, libc::c_int> {
-        if Self::in_range(n) {
-            Err(n)
-        } else {
-            Ok(unsafe { Self::new_unchecked(n) })
-        }
-    }
-
-    /// # Safety
-    ///
-    /// only safe if assert_eq!(Self::in_range(n), true)
-    pub const unsafe fn new_unchecked(inner: libc::c_int) -> Self {
-        Self { inner }
-    }
-
-    pub const fn in_range(n: libc::c_int) -> bool {
-        Self::INFINITE.inner <= n && n <= Self::MAX.inner
-    }
-}
-
-impl Default for TimeOut {
-    fn default() -> Self {
-        Self::INFINITE
-    }
-}
-
-impl Into<libc::c_int> for TimeOut {
-    fn into(self) -> libc::c_int {
-        self.inner
-    }
-}
-
-impl From<libc::c_int> for TimeOut {
-    fn from(n: libc::c_int) -> Self {
-        if n < Self::INFINITE.inner {
-            Self::INFINITE
-        } else {
-            unsafe { Self::new_unchecked(n) }
-        }
-    }
-}
-
-#[repr(transparent)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MaxEvents {
     inner: usize,
 }
@@ -609,20 +556,5 @@ mod tests_epoll {
     #[should_panic]
     fn create_with_max() {
         create::<DataU32>(false, usize::MAX);
-    }
-}
-
-#[cfg(test)]
-mod tests_timeout {
-    use crate::TimeOut;
-
-    fn timeout_new(timeout: libc::c_int) {
-        let result = TimeOut::new(timeout).unwrap();
-
-        assert_eq!(timeout, result.into());
-    }
-    #[test]
-    fn timeout_new_zero() {
-        timeout_new(0);
     }
 }
