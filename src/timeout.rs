@@ -10,12 +10,13 @@ impl TimeOut {
     pub const MAX: Self = Self {
         inner: libc::c_int::MAX,
     };
+    pub const DEFAULT: Self = Self::INFINITE;
 
     pub const fn new(n: libc::c_int) -> Result<Self, libc::c_int> {
         if Self::in_range(n) {
-            Err(n)
-        } else {
             Ok(unsafe { Self::new_unchecked(n) })
+        } else {
+            Err(n)
         }
     }
 
@@ -33,7 +34,7 @@ impl TimeOut {
 
 impl Default for TimeOut {
     fn default() -> Self {
-        Self::INFINITE
+        Self::DEFAULT
     }
 }
 
@@ -58,69 +59,121 @@ mod tests_timeout {
     use crate::TimeOut;
 
     fn timeout_new(timeout: libc::c_int) {
-        let result = TimeOut::new(timeout);
+        assert_eq!(Ok(TimeOut { inner: timeout }), TimeOut::new(timeout));
+    }
 
-        assert_eq!(Ok(TimeOut { inner: timeout }), result);
+    fn timeout_new_error(timeout: libc::c_int) {
+        assert_eq!(Err(timeout), TimeOut::new(timeout));
     }
 
     #[test]
-    fn timeout_new_zero() {
+    fn new_zero() {
         timeout_new(0);
     }
 
     #[test]
-    fn timeout_new_one() {
+    fn new_one() {
         timeout_new(1);
     }
 
     #[test]
-    fn timeout_new_minus_one() {
+    fn new_minus_one() {
         timeout_new(-1);
     }
 
     #[test]
-    #[should_panic]
-    fn timeout_new_minus_two() {
-        timeout_new(-2);
+    fn new_minus_two() {
+        timeout_new_error(-2);
     }
 
     #[test]
-    fn timeout_new_c_int_max() {
+    fn new_max() {
         timeout_new(libc::c_int::MAX);
     }
 
     #[test]
-    fn timeout_max() {
-        assert_eq!(
-            TimeOut {
-                inner: libc::c_int::MAX
-            },
-            TimeOut::MAX
-        );
+    fn infine() {
+        assert_eq!(TimeOut::new(-1), Ok(TimeOut::INFINITE));
     }
 
     #[test]
-    fn timeout_infine() {
-        assert_eq!(TimeOut { inner: -1 }, TimeOut::INFINITE);
+    fn instant() {
+        assert_eq!(TimeOut::new(0), Ok(TimeOut::INSTANT));
     }
 
     #[test]
-    fn timeout_instant() {
-        assert_eq!(TimeOut { inner: 0 }, TimeOut::INSTANT);
-    }
-
-    fn timeout_into(
-        timeout: libc::c_int,
-        expected: libc::c_int,
-    ) {
-        let result: TimeOut = timeout.into();
-
-        assert_eq!(result, TimeOut { inner: expected });
+    fn max() {
+        assert_eq!(TimeOut::new(libc::c_int::MAX), Ok(TimeOut::MAX));
     }
 
     #[test]
-    #[should_panic]
-    fn timeout_minus_two() {
-        timeout_into(-2, -1);
+    fn default() {
+        assert_eq!(TimeOut::default(), TimeOut::DEFAULT);
+    }
+
+    #[test]
+    fn minus_two() {
+        assert_eq!(TimeOut::from(-2), TimeOut::INFINITE);
+    }
+
+    #[test]
+    fn minus_one() {
+        assert_eq!(TimeOut::from(-1), TimeOut::INFINITE);
+    }
+
+    #[test]
+    fn zero() {
+        assert_eq!(TimeOut::from(0), TimeOut::INSTANT);
+    }
+
+    #[test]
+    fn one() {
+        assert_eq!(Ok(TimeOut::from(1)), TimeOut::new(1));
+    }
+
+    fn timeout_new_unchecked(timeout: libc::c_int) {
+        assert_eq!(TimeOut { inner: timeout }, unsafe {
+            TimeOut::new_unchecked(timeout)
+        });
+    }
+
+    #[test]
+    fn new_unchecked_zero() {
+        timeout_new_unchecked(0);
+    }
+
+    #[test]
+    fn new_unchecked_one() {
+        timeout_new_unchecked(1);
+    }
+
+    #[test]
+    fn new_unchecked_minus_one() {
+        timeout_new_unchecked(-1);
+    }
+
+    #[test]
+    fn new_unchecked_c_int_max() {
+        timeout_new_unchecked(libc::c_int::MAX);
+    }
+
+    #[test]
+    fn into_infine() {
+        assert_eq!(Into::<libc::c_int>::into(TimeOut::INFINITE), -1);
+    }
+
+    #[test]
+    fn into_max() {
+        assert_eq!(Into::<libc::c_int>::into(TimeOut::MAX), libc::c_int::MAX);
+    }
+
+    #[test]
+    fn into_instant() {
+        assert_eq!(Into::<libc::c_int>::into(TimeOut::INSTANT), 0);
+    }
+
+    #[test]
+    fn into_default() {
+        assert_eq!(Into::<libc::c_int>::into(TimeOut::DEFAULT), -1);
     }
 }

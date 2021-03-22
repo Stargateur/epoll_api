@@ -13,9 +13,9 @@ impl MaxEvents {
 
     pub const fn new(n: usize) -> Result<Self, usize> {
         if Self::in_range(n) {
-            Err(n)
-        } else {
             Ok(unsafe { Self::new_unchecked(n) })
+        } else {
+            Err(n)
         }
     }
 
@@ -52,5 +52,97 @@ impl Default for MaxEvents {
 impl Into<usize> for MaxEvents {
     fn into(self) -> usize {
         self.inner
+    }
+}
+
+#[cfg(test)]
+mod tests_max_events {
+    use crate::MaxEvents;
+
+    fn maxevents_new(max_events: usize) {
+        assert_eq!(
+            Ok(MaxEvents { inner: max_events }),
+            MaxEvents::new(max_events)
+        );
+    }
+
+    fn maxevents_new_error(max_events: usize) {
+        assert_eq!(Err(max_events), MaxEvents::new(max_events));
+    }
+
+    #[test]
+    fn new_zero() {
+        maxevents_new_error(0);
+    }
+
+    #[test]
+    fn new_one() {
+        maxevents_new(1);
+    }
+
+    #[test]
+    fn new_two() {
+        maxevents_new(2);
+    }
+
+    #[test]
+    fn new_max() {
+        maxevents_new(usize::MAX);
+    }
+
+    #[test]
+    fn min() {
+        assert_eq!(MaxEvents::new(1), Ok(MaxEvents::MIN));
+    }
+
+    #[test]
+    fn max() {
+        assert_eq!(MaxEvents::new(usize::MAX), Ok(MaxEvents::MAX));
+    }
+
+    #[test]
+    fn default() {
+        assert_eq!(MaxEvents::default(), MaxEvents::DEFAULT);
+    }
+
+    #[test]
+    fn one() {
+        assert_eq!(Ok(MaxEvents::from(1)), MaxEvents::new(1));
+    }
+
+    fn maxevents_new_unchecked(maxevents: usize) {
+        assert_eq!(MaxEvents { inner: maxevents }, unsafe {
+            MaxEvents::new_unchecked(maxevents)
+        });
+    }
+
+    #[test]
+    fn new_unchecked_one() {
+        maxevents_new_unchecked(1);
+    }
+
+    #[test]
+    fn new_unchecked_two() {
+        maxevents_new_unchecked(2);
+    }
+
+    #[test]
+    fn new_unchecked_max() {
+        maxevents_new_unchecked(usize::MAX);
+    }
+
+    #[test]
+    fn into_min() {
+        assert_eq!(Into::<usize>::into(MaxEvents::MIN), 1);
+    }
+
+    #[test]
+    fn into_max() {
+        assert_eq!(Into::<usize>::into(MaxEvents::MAX), usize::MAX);
+    }
+
+    #[test]
+    fn into_default() {
+        assert_eq!(Into::<usize>::into(MaxEvents::DEFAULT), 64);
     }
 }
