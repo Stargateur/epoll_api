@@ -55,7 +55,7 @@ impl From<libc::c_int> for TimeOut {
 }
 
 #[cfg(test)]
-mod tests_timeout {
+mod tests {
     use crate::TimeOut;
 
     fn timeout_new(timeout: libc::c_int) {

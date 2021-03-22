@@ -56,7 +56,7 @@ impl Into<usize> for MaxEvents {
 }
 
 #[cfg(test)]
-mod tests_max_events {
+mod tests {
     use crate::MaxEvents;
 
     fn maxevents_new(max_events: usize) {
@@ -87,7 +87,12 @@ mod tests_max_events {
 
     #[test]
     fn new_max() {
-        maxevents_new(usize::MAX);
+        maxevents_new(libc::c_int::MAX as usize);
+    }
+
+    #[test]
+    fn new_max_usize() {
+        maxevents_new_error(usize::MAX);
     }
 
     #[test]
@@ -97,7 +102,10 @@ mod tests_max_events {
 
     #[test]
     fn max() {
-        assert_eq!(MaxEvents::new(usize::MAX), Ok(MaxEvents::MAX));
+        assert_eq!(
+            MaxEvents::new(libc::c_int::MAX as usize),
+            Ok(MaxEvents::MAX)
+        );
     }
 
     #[test]
@@ -138,7 +146,10 @@ mod tests_max_events {
 
     #[test]
     fn into_max() {
-        assert_eq!(Into::<usize>::into(MaxEvents::MAX), usize::MAX);
+        assert_eq!(
+            Into::<usize>::into(MaxEvents::MAX),
+            libc::c_int::MAX as usize
+        );
     }
 
     #[test]
