@@ -326,11 +326,18 @@ impl<T: DataKind> EPoll<T> {
         close_exec: bool,
         max_events: N,
     ) -> io::Result<Self> {
+        let max_events = max_events.into();
+        #[cfg(feature = "log")]
+        log::trace!(
+            "new: close_exec: {:?}, max_events: {:?}",
+            close_exec,
+            max_events
+        );
         let fd = epoll::create(close_exec)?;
 
         Ok(Self {
             api: Api::new(fd),
-            buffer: Vec::with_capacity(max_events.into().into()),
+            buffer: Vec::with_capacity(max_events.into()),
         })
     }
 
@@ -404,31 +411,37 @@ impl<T: DataKind> EPoll<T> {
         &mut self,
         timeout: N,
     ) -> io::Result<Wait<T>> {
+        #[cfg(feature = "log")]
+        log::trace!("=> wait");
         unsafe {
-            let num_events = {
+            let ret = libc::epoll_wait(
+                self.as_raw_fd(),
+                self.buffer.as_mut_ptr() as *mut libc::epoll_event,
+                self.buffer.capacity() as libc::c_int,
+                timeout.into().into(),
+            );
+
+            if ret < 0 {
+                let e = io::Error::last_os_error();
                 #[cfg(feature = "log")]
-                log::debug!("=> epoll_wait");
-                let ret = libc::epoll_wait(
-                    self.as_raw_fd(),
-                    self.buffer.as_mut_ptr() as *mut libc::epoll_event,
-                    self.buffer.capacity() as libc::c_int,
-                    timeout.into().into(),
-                );
-                #[cfg(feature = "log")]
-                log::debug!("<= epoll_wait");
-                if ret < 0 {
-                    return Err(io::Error::last_os_error());
-                } else {
-                    ret as usize
+                {
+                    log::error!("{}", e);
+                    log::trace!("<= wait");
                 }
-            };
+                Err(e)
+            } else {
+                let num_events = ret as usize;
+                self.buffer.set_len(num_events);
 
-            self.buffer.set_len(num_events);
+                // https://doc.rust-lang.org/std/mem/union.MaybeUninit.html#method.slice_assume_init_ref
+                let buffer = &mut *(self.buffer.as_mut_slice() as *mut _ as *mut [Event<T>]);
+
+                let wait = Wait::new(&mut self.api, buffer);
+                #[cfg(feature = "log")]
+                log::trace!("<= wait");
+                Ok(wait)
+            }
         }
-
-        // https://doc.rust-lang.org/std/mem/union.MaybeUninit.html#method.slice_assume_init_ref
-        let buffer = unsafe { &mut *(self.buffer.as_mut_slice() as *mut _ as *mut [Event<T>]) };
-        Ok(Wait::new(&mut self.api, buffer))
     }
 
     /// This resize the buffer used to recieve event
