@@ -31,12 +31,12 @@ impl Client {
                 Err(e) => {
                     if e.kind() == ErrorKind::WouldBlock {
                         log::trace!("Register for write");
-                    }
-                    else {
+                        return Ok(());
+                    } else {
                         return Err(e);
                     }
                 }
-            }
+            };
             log::trace!("writen: {}", n);
             self.buffer.drain(..n);
         }
