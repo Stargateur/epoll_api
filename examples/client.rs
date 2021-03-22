@@ -136,7 +136,6 @@ fn main() {
                                 if let Err(e) = server.write_buffer() {
                                     log::error!("{}", e);
                                 }
-                                // we should wait for server response
                                 break 'run;
                             }
                             State::WouldBlock(_) => {

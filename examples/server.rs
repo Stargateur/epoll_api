@@ -19,13 +19,24 @@ enum Kind {
 struct Client {
     stream: TcpStream,
     buffer: Vec<u8>,
+    flags: Flags,
 }
 
 impl Client {
     fn write_buffer(&mut self) -> io::Result<()> {
         log::trace!("=> write");
-        if !self.buffer.is_empty() {
-            let n = self.stream.write(&self.buffer)?;
+        while !self.buffer.is_empty() {
+            let n = match self.stream.write(&self.buffer) {
+                Ok(n) => n,
+                Err(e) => {
+                    if e.kind() == ErrorKind::WouldBlock {
+                        log::trace!("Register for write");
+                    }
+                    else {
+                        return Err(e);
+                    }
+                }
+            }
             log::trace!("writen: {}", n);
             self.buffer.drain(..n);
         }
@@ -72,11 +83,13 @@ fn main() {
 
                                     let fd = stream.as_raw_fd();
                                     stream.set_nonblocking(true).unwrap();
+                                    let flags = Flags::EPOLLIN | Flags::EPOLLET;
                                     let event = Event::new(
-                                        Flags::EPOLLIN | Flags::EPOLLOUT | Flags::EPOLLET,
+                                        flags,
                                         Data::new_box(Kind::Client(Client {
                                             stream,
                                             buffer: Default::default(),
+                                            flags,
                                         })),
                                     );
 

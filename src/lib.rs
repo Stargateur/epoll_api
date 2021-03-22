@@ -411,7 +411,7 @@ impl<T: DataKind> EPoll<T> {
                 let ret = libc::epoll_wait(
                     self.as_raw_fd(),
                     self.buffer.as_mut_ptr() as *mut libc::epoll_event,
-                    self.buffer.capacity() as i32,
+                    self.buffer.capacity() as libc::c_int,
                     timeout.into().into(),
                 );
                 #[cfg(feature = "log")]
