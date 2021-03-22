@@ -515,9 +515,34 @@ mod tests_epoll {
     }
 
     #[test]
-    #[should_panic]
-    #[ignore = "This abort on github action cause it ask too much memeory"]
+//    #[ignore = "This abort on github action cause it ask too much memory"]
     fn create_with_max() {
-        create::<DataU32>(false, usize::MAX);
+        use nix::{
+            sys::{
+                signal::Signal,
+                wait::{waitpid, WaitStatus},
+            },
+            unistd::{fork, ForkResult},
+        };
+
+        match unsafe { fork() } {
+            Ok(ForkResult::Parent { child }) => match waitpid(child, None) {
+                Ok(WaitStatus::Exited(_, n)) => {
+                    if n == 0 {
+                        panic!("Didn't panic")
+                    }
+                }
+                Ok(WaitStatus::Signaled(_, s, _)) => {
+                    if s != Signal::SIGABRT {
+                        panic!("Didn't abort")
+                    }
+                }
+                o => panic!("didn't expect: {:?}", o),
+            },
+            Ok(ForkResult::Child) => {
+                create::<DataU32>(false, usize::MAX);
+            }
+            Err(_) => panic!("Fork failed"),
+        }
     }
 }
