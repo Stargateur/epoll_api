@@ -516,6 +516,7 @@ mod tests_epoll {
 
     #[test]
     #[should_panic]
+    #[ignore = "This abort on github action cause it ask too much memeory"]
     fn create_with_max() {
         create::<DataU32>(false, usize::MAX);
     }
