@@ -515,7 +515,7 @@ mod tests_epoll {
     }
 
     #[test]
-//    #[ignore = "This abort on github action cause it ask too much memory"]
+    #[ignore = "Still ignored taupaulin doesn't like it too"]
     fn create_with_max() {
         use nix::{
             sys::{
@@ -524,23 +524,26 @@ mod tests_epoll {
             },
             unistd::{fork, ForkResult},
         };
+        use std::panic;
+        use std::process::abort;
 
         match unsafe { fork() } {
             Ok(ForkResult::Parent { child }) => match waitpid(child, None) {
-                Ok(WaitStatus::Exited(_, n)) => {
-                    if n == 0 {
-                        panic!("Didn't panic")
-                    }
-                }
                 Ok(WaitStatus::Signaled(_, s, _)) => {
                     if s != Signal::SIGABRT {
                         panic!("Didn't abort")
                     }
                 }
-                o => panic!("didn't expect: {:?}", o),
+                o => panic!("Didn't expect: {:?}", o),
             },
             Ok(ForkResult::Child) => {
-                create::<DataU32>(false, usize::MAX);
+                let result = panic::catch_unwind(|| {
+                    create::<DataU32>(false, usize::MAX);
+                });
+
+                if let Err(_) = result {
+                    abort();
+                }
             }
             Err(_) => panic!("Fork failed"),
         }
