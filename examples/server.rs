@@ -49,7 +49,6 @@ impl Client {
 }
 
 fn main() {
-    tracing_log::env_logger::init();
     tracing_subscriber::fmt()
         .with_max_level(LevelFilter::TRACE)
         .init();
