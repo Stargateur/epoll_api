@@ -1,14 +1,17 @@
 pub mod data_kind;
 
-mod timeout;
-pub use timeout::TimeOut;
+mod time_out;
+pub use time_out::TimeOut;
 
 mod max_events;
 pub use max_events::MaxEvents;
 
 pub mod utils;
 
-pub use epoll::{ControlOptions, Events as Flags};
+use epoll::ControlOptions;
+pub use epoll::Events as Flags;
+
+use data_kind::*;
 
 use std::{
     collections::hash_map::{Entry, HashMap},
@@ -19,7 +22,10 @@ use std::{
     ptr::null_mut,
 };
 
-use data_kind::*;
+use snafu::Snafu;
+
+#[cfg(feature = "tracing")]
+use tracing::trace_span;
 
 #[repr(C)]
 #[cfg_attr(
@@ -234,6 +240,9 @@ impl<T: DataKind> EPollApi<T> for Api<T> {
         fd: RawFd,
         mut event: Event<T>,
     ) -> io::Result<&mut Data<T>> {
+        #[cfg(feature = "tracing")]
+        let _span = trace_span!("add", self.fd, fd, flags = ?event.flags()).entered();
+
         match self.datas.entry(fd) {
             Entry::Occupied(_) => Err(ErrorKind::AlreadyExists.into()),
             Entry::Vacant(v) => {
@@ -254,6 +263,8 @@ impl<T: DataKind> EPollApi<T> for Api<T> {
         fd: RawFd,
         flags: Flags,
     ) -> io::Result<()> {
+        let _span = trace_span!("mod_flags", self.fd, fd, ?flags).entered();
+
         match self.datas.entry(fd) {
             Entry::Occupied(o) => {
                 let data = o.into_mut().raw();
@@ -314,6 +325,27 @@ impl<T: DataKind> EPollApi<T> for EPoll<T> {
     }
 }
 
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("IO: code: {} source: {}", code, source))]
+    IO {
+        code: libc::c_int,
+        source: std::io::Error,
+    },
+
+    #[snafu(display("Fd: {} is not register in this EPoll instance", fd))]
+    FdNotFound { fd: RawFd },
+}
+
+impl From<libc::c_int> for Error {
+    fn from(code: libc::c_int) -> Self {
+        Self::IO {
+            code,
+            source: io::Error::last_os_error(),
+        }
+    }
+}
+
 impl<T: DataKind> EPoll<T> {
     /// Creates a new epoll file descriptor.
     ///
@@ -325,20 +357,25 @@ impl<T: DataKind> EPoll<T> {
     pub fn new<N: Into<MaxEvents>>(
         close_exec: bool,
         max_events: N,
-    ) -> io::Result<Self> {
+    ) -> Result<Self, Error> {
         let max_events = max_events.into();
-        #[cfg(feature = "log")]
-        log::trace!(
-            "new: close_exec: {:?}, max_events: {:?}",
-            close_exec,
-            max_events
-        );
-        let fd = epoll::create(close_exec)?;
 
-        Ok(Self {
-            api: Api::new(fd),
-            buffer: Vec::with_capacity(max_events.into()),
-        })
+        #[cfg(feature = "tracing")]
+        let _span = trace_span!("new", close_exec, ?max_events).entered();
+
+        let max_events = max_events.into();
+
+        let flags = if close_exec { libc::EPOLL_CLOEXEC } else { 0 };
+        let ret = unsafe { libc::epoll_create1(flags) };
+
+        if ret < 0 {
+            Err(ret.into())
+        } else {
+            Ok(Self {
+                api: Api::new(ret),
+                buffer: Vec::with_capacity(max_events),
+            })
+        }
     }
 
     /// Safe wrapper to modify an event for `libc::epoll_ctl`
@@ -347,21 +384,25 @@ impl<T: DataKind> EPoll<T> {
         &mut self,
         fd: RawFd,
         mut event: Event<T>,
-    ) -> io::Result<(Data<T>, &mut Data<T>)> {
+    ) -> Result<(Data<T>, &mut Data<T>), Error> {
+        #[cfg(feature = "tracing")]
+        let _span = trace_span!("mod_event", self.api.fd, fd, flags = ?event.flags()).entered();
+
         match self.api.datas.entry(fd) {
             Entry::Occupied(o) => {
                 let new = &mut event as *mut _ as *mut libc::epoll_event;
                 let op = ControlOptions::EPOLL_CTL_MOD as i32;
 
-                if unsafe { libc::epoll_ctl(self.api.fd, op, fd, new) } < 0 {
-                    Err(io::Error::last_os_error())
+                let ret = unsafe { libc::epoll_ctl(self.api.fd, op, fd, new) };
+                if ret < 0 {
+                    Err(ret.into())
                 } else {
                     let data = o.into_mut();
                     let old = std::mem::replace(data, event.into_data());
                     Ok((old, data))
                 }
             }
-            Entry::Vacant(_) => Err(ErrorKind::NotFound.into()),
+            Entry::Vacant(_) => Err(Error::FdNotFound { fd }),
         }
     }
 
@@ -369,19 +410,23 @@ impl<T: DataKind> EPoll<T> {
     pub fn del(
         &mut self,
         fd: RawFd,
-    ) -> io::Result<Data<T>> {
+    ) -> Result<Data<T>, Error> {
+        #[cfg(feature = "tracing")]
+        let _span = trace_span!("del", self.api.fd, fd).entered();
+
         match self.api.datas.entry(fd) {
             Entry::Occupied(o) => {
                 let event = null_mut() as *mut libc::epoll_event;
                 let op = ControlOptions::EPOLL_CTL_DEL as i32;
 
-                if unsafe { libc::epoll_ctl(self.api.fd, op, fd, event) } < 0 {
-                    Err(io::Error::last_os_error())
+                let ret = unsafe { libc::epoll_ctl(self.api.fd, op, fd, event) };
+                if ret < 0 {
+                    Err(ret.into())
                 } else {
                     Ok(o.remove())
                 }
             }
-            Entry::Vacant(_) => Err(ErrorKind::NotFound.into()),
+            Entry::Vacant(_) => Err(Error::FdNotFound { fd }),
         }
     }
 
@@ -391,43 +436,47 @@ impl<T: DataKind> EPoll<T> {
     /// you will need to call `Event<DataPtr<T>>::into_inner()`
     /// This could be improve if we could specialize Drop
     /// https://github.com/rust-lang/rust/issues/46893
-    pub fn close(self) -> (io::Result<()>, HashMap<RawFd, Data<T>>) {
-        let ret = if unsafe { libc::close(self.as_raw_fd()) } < 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(())
-        };
+    pub fn close(self) -> (Result<(), Error>, HashMap<RawFd, Data<T>>) {
+        #[cfg(feature = "tracing")]
+        let _span = trace_span!("close", self.api.fd).entered();
 
-        (ret, self.api.datas)
+        let ret = unsafe { libc::close(self.as_raw_fd()) };
+        let result = if ret < 0 { Err(ret.into()) } else { Ok(()) };
+
+        (result, self.api.datas)
     }
 
     /// Safe wrapper for `libc::epoll_wait`
-    /// The timeout argument is in milliseconds
+    /// The time_out argument is in milliseconds
     ///
     /// ## Notes
     ///
-    /// * If `timeout` is negative, it will block until an event is received.
+    /// * If `time_out` is negative, it will block until an event is received.
     pub fn wait<N: Into<TimeOut>>(
         &mut self,
-        timeout: N,
-    ) -> io::Result<Wait<T>> {
-        #[cfg(feature = "log")]
-        log::trace!("=> wait");
+        time_out: N,
+    ) -> Result<Wait<T>, Error>
+    where
+        N: Into<TimeOut>,
+    {
+        let time_out = time_out.into();
+
+        #[cfg(feature = "tracing")]
+        let _span = trace_span!("wait", self.api.fd, ?time_out).entered();
+
+        let time_out = time_out.into();
+
         unsafe {
             let ret = libc::epoll_wait(
                 self.as_raw_fd(),
                 self.buffer.as_mut_ptr() as *mut libc::epoll_event,
                 self.buffer.capacity() as libc::c_int,
-                timeout.into().into(),
+                time_out,
             );
 
             if ret < 0 {
-                let e = io::Error::last_os_error();
-                #[cfg(feature = "log")]
-                {
-                    log::error!("{}", e);
-                    log::trace!("<= wait");
-                }
+                let e = ret.into();
+
                 Err(e)
             } else {
                 let num_events = ret as usize;
@@ -437,8 +486,6 @@ impl<T: DataKind> EPoll<T> {
                 let buffer = &mut *(self.buffer.as_mut_slice() as *mut _ as *mut [Event<T>]);
 
                 let wait = Wait::new(&mut self.api, buffer);
-                #[cfg(feature = "log")]
-                log::trace!("<= wait");
                 Ok(wait)
             }
         }
@@ -449,8 +496,14 @@ impl<T: DataKind> EPoll<T> {
         &mut self,
         max_events: N,
     ) {
-        self.buffer
-            .resize_with(max_events.into().into(), MaybeUninit::uninit);
+        let max_events = max_events.into();
+
+        #[cfg(feature = "tracing")]
+        let _span = trace_span!("resize_buffer", fd = self.api.fd, ?max_events).entered();
+
+        let max_events = max_events.into();
+
+        self.buffer.resize_with(max_events, MaybeUninit::uninit);
         self.buffer.shrink_to_fit();
     }
 }

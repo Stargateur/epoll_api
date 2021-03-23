@@ -17,7 +17,7 @@ license = "MIT"
 readme = "README.md"
 
 [features]
-default = ["log"]
+default = ["tracing"]
 
 [dependencies]
 epoll = "4"
@@ -25,11 +25,12 @@ libc = "0.2"
 
 # utils
 # unfortunatly the crate is too limited for my use case
- bounded-integer = "0.4"
+bounded-integer = "0.4"
 static_assertions = "1"
+snafu = "0.6"
 
-[dependencies.log]
-version = "0.4"
+[dependencies.tracing]
+version = "0.1"
 optional = true
 
 [dev-dependencies]

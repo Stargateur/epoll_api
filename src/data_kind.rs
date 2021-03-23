@@ -89,7 +89,7 @@ impl Data<DataFd> {
     }
 
     pub fn fd(&self) -> RawFd {
-        unsafe { self.raw.fd }
+        unsafe { self.raw().fd }
     }
 }
 
@@ -311,3 +311,6 @@ impl<T> From<Box<T>> for Data<DataBox<T>> {
         Self::new_box(t)
     }
 }
+
+#[cfg(test)]
+mod tests {}

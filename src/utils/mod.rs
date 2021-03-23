@@ -1,7 +1,14 @@
+mod read_size;
+
 use std::{
     io::{self, ErrorKind, Read},
     os::unix::io::AsRawFd,
 };
+
+pub use read_size::ReadSize;
+
+#[cfg(feature = "tracing")]
+use tracing::trace_span;
 
 #[must_use]
 pub enum State {
@@ -11,12 +18,23 @@ pub enum State {
 }
 
 /// This function assume the Read implementation don't do anything stupid sue me
-pub fn read_until_wouldblock<R: Read>(
+
+pub fn read_until_wouldblock<R, S>(
     mut reader: R,
     output: &mut Vec<u8>,
-    read_size: usize,
-) -> State {
-    log::trace!("=> read_until_wouldblock");
+    read_size: S,
+) -> State
+where
+    R: Read,
+    S: Into<ReadSize>,
+{
+    let read_size: ReadSize = read_size.into();
+
+    #[cfg(feature = "tracing")]
+    let _span = trace_span!("read_until_wouldblock", ?read_size).entered();
+
+    let read_size = read_size.into();
+
     let mut total = 0;
     let ret = loop {
         let available = output.capacity() - output.len();
@@ -44,13 +62,16 @@ pub fn read_until_wouldblock<R: Read>(
             }
         }
     };
-    log::trace!("<= read_until_wouldblock");
 
     ret
 }
 
 pub fn set_non_blocking<DataFd: AsRawFd>(fd: DataFd) -> io::Result<()> {
     let fd = fd.as_raw_fd();
+
+    #[cfg(feature = "tracing")]
+    let _span = trace_span!("set_non_blocking", fd).entered();
+
     unsafe {
         let flags = libc::fcntl(fd, libc::F_GETFL);
         if flags == -1 {

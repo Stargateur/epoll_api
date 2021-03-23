@@ -1,15 +1,13 @@
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct MaxEvents {
+pub struct ReadSize {
     inner: usize,
 }
 
-impl MaxEvents {
+impl ReadSize {
     pub const MIN: Self = Self { inner: 1 };
-    pub const MAX: Self = Self {
-        inner: libc::c_int::MAX as usize,
-    };
-    pub const DEFAULT: Self = Self { inner: 64 };
+    pub const MAX: Self = Self { inner: usize::MAX };
+    pub const DEFAULT: Self = Self { inner: 4096 };
 
     pub const fn new(n: usize) -> Result<Self, usize> {
         if Self::in_range(n) {
@@ -31,7 +29,7 @@ impl MaxEvents {
     }
 }
 
-impl From<usize> for MaxEvents {
+impl From<usize> for ReadSize {
     fn from(n: usize) -> Self {
         if n < Self::MIN.inner {
             Self::default()
@@ -43,13 +41,13 @@ impl From<usize> for MaxEvents {
     }
 }
 
-impl Default for MaxEvents {
+impl Default for ReadSize {
     fn default() -> Self {
         Self::DEFAULT
     }
 }
 
-impl Into<usize> for MaxEvents {
+impl Into<usize> for ReadSize {
     fn into(self) -> usize {
         self.inner
     }
@@ -57,108 +55,102 @@ impl Into<usize> for MaxEvents {
 
 #[cfg(test)]
 mod tests {
-    use super::MaxEvents;
+    use super::ReadSize;
 
-    fn max_events_new(max_events: usize) {
-        assert_eq!(
-            Ok(MaxEvents { inner: max_events }),
-            MaxEvents::new(max_events)
-        );
+    fn read_size_new(read_size: usize) {
+        assert_eq!(Ok(ReadSize { inner: read_size }), ReadSize::new(read_size));
     }
 
-    fn max_events_new_error(max_events: usize) {
-        assert_eq!(Err(max_events), MaxEvents::new(max_events));
+    fn read_size_new_error(read_size: usize) {
+        assert_eq!(Err(read_size), ReadSize::new(read_size));
     }
 
     #[test]
     fn new_zero() {
-        max_events_new_error(0);
+        read_size_new_error(0);
     }
 
     #[test]
     fn new_one() {
-        max_events_new(1);
+        read_size_new(1);
     }
 
     #[test]
     fn new_two() {
-        max_events_new(2);
+        read_size_new(2);
     }
 
     #[test]
     fn new_max() {
-        max_events_new(libc::c_int::MAX as usize);
+        read_size_new(libc::c_int::MAX as usize);
     }
 
     #[test]
     fn new_max_usize() {
-        max_events_new_error(usize::MAX);
+        read_size_new_error(usize::MAX);
     }
 
     #[test]
     fn min() {
-        assert_eq!(MaxEvents::new(1), Ok(MaxEvents::MIN));
+        assert_eq!(ReadSize::new(1), Ok(ReadSize::MIN));
     }
 
     #[test]
     fn max() {
-        assert_eq!(
-            MaxEvents::new(libc::c_int::MAX as usize),
-            Ok(MaxEvents::MAX)
-        );
+        assert_eq!(ReadSize::new(libc::c_int::MAX as usize), Ok(ReadSize::MAX));
     }
 
     #[test]
     fn saturate_max() {
-        assert_eq!(MaxEvents::new(usize::MAX), Ok(MaxEvents::MAX));
+        assert_eq!(ReadSize::new(usize::MAX), Ok(ReadSize::MAX));
     }
 
     #[test]
     fn default() {
-        assert_eq!(MaxEvents::default(), MaxEvents::DEFAULT);
+        assert_eq!(ReadSize::default(), ReadSize::DEFAULT);
     }
 
     #[test]
     fn one() {
-        assert_eq!(Ok(MaxEvents::from(1)), MaxEvents::new(1));
+        assert_eq!(Ok(ReadSize::from(1)), ReadSize::new(1));
     }
 
-    fn max_events_new_unchecked(max_events: usize) {
-        assert_eq!(MaxEvents { inner: max_events }, unsafe {
-            MaxEvents::new_unchecked(max_events)
+    fn read_size_new_unchecked(read_size: usize) {
+        assert_eq!(ReadSize { inner: read_size }, unsafe {
+            ReadSize::new_unchecked(read_size)
         });
     }
 
     #[test]
     fn new_unchecked_one() {
-        max_events_new_unchecked(1);
+        read_size_new_unchecked(1);
     }
 
     #[test]
     fn new_unchecked_two() {
-        max_events_new_unchecked(2);
+        read_size_new_unchecked(2);
     }
 
     #[test]
     fn new_unchecked_max() {
-        max_events_new_unchecked(usize::MAX);
+        read_size_new_unchecked(usize::MAX);
     }
 
     #[test]
     fn into_min() {
-        assert_eq!(Into::<usize>::into(MaxEvents::MIN), 1);
+        assert_eq!(Into::<usize>::into(ReadSize::MIN), 1);
     }
 
     #[test]
     fn into_max() {
         assert_eq!(
-            Into::<usize>::into(MaxEvents::MAX),
+            Into::<usize>::into(ReadSize::MAX),
             libc::c_int::MAX as usize
         );
     }
 
     #[test]
     fn into_default() {
-        assert_eq!(Into::<usize>::into(MaxEvents::DEFAULT), 64);
+        assert_eq!(Into::<usize>::into(ReadSize::DEFAULT), 64);
     }
 }

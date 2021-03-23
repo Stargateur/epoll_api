@@ -58,37 +58,37 @@ impl From<libc::c_int> for TimeOut {
 mod tests {
     use crate::TimeOut;
 
-    fn timeout_new(timeout: libc::c_int) {
-        assert_eq!(Ok(TimeOut { inner: timeout }), TimeOut::new(timeout));
+    fn time_out_new(time_out: libc::c_int) {
+        assert_eq!(Ok(TimeOut { inner: time_out }), TimeOut::new(time_out));
     }
 
-    fn timeout_new_error(timeout: libc::c_int) {
-        assert_eq!(Err(timeout), TimeOut::new(timeout));
+    fn time_out_new_error(time_out: libc::c_int) {
+        assert_eq!(Err(time_out), TimeOut::new(time_out));
     }
 
     #[test]
     fn new_zero() {
-        timeout_new(0);
+        time_out_new(0);
     }
 
     #[test]
     fn new_one() {
-        timeout_new(1);
+        time_out_new(1);
     }
 
     #[test]
     fn new_minus_one() {
-        timeout_new(-1);
+        time_out_new(-1);
     }
 
     #[test]
     fn new_minus_two() {
-        timeout_new_error(-2);
+        time_out_new_error(-2);
     }
 
     #[test]
     fn new_max() {
-        timeout_new(libc::c_int::MAX);
+        time_out_new(libc::c_int::MAX);
     }
 
     #[test]
@@ -131,30 +131,30 @@ mod tests {
         assert_eq!(Ok(TimeOut::from(1)), TimeOut::new(1));
     }
 
-    fn timeout_new_unchecked(timeout: libc::c_int) {
-        assert_eq!(TimeOut { inner: timeout }, unsafe {
-            TimeOut::new_unchecked(timeout)
+    fn time_out_new_unchecked(time_out: libc::c_int) {
+        assert_eq!(TimeOut { inner: time_out }, unsafe {
+            TimeOut::new_unchecked(time_out)
         });
     }
 
     #[test]
     fn new_unchecked_zero() {
-        timeout_new_unchecked(0);
+        time_out_new_unchecked(0);
     }
 
     #[test]
     fn new_unchecked_one() {
-        timeout_new_unchecked(1);
+        time_out_new_unchecked(1);
     }
 
     #[test]
     fn new_unchecked_minus_one() {
-        timeout_new_unchecked(-1);
+        time_out_new_unchecked(-1);
     }
 
     #[test]
     fn new_unchecked_c_int_max() {
-        timeout_new_unchecked(libc::c_int::MAX);
+        time_out_new_unchecked(libc::c_int::MAX);
     }
 
     #[test]
