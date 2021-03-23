@@ -1,7 +1,7 @@
 use epoll_api::{
-    data_kind::Data,
+    data_kind::{Data, DataBox},
     utils::{read_until_wouldblock, State},
-    EPoll, EPollApi, Event, Flags, TimeOut,
+    Api, EPoll, EPollApi, Event, Flags, TimeOut,
 };
 
 use std::{
@@ -11,7 +11,9 @@ use std::{
     os::unix::io::AsRawFd,
 };
 
-use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::{filter::LevelFilter, fmt::format::FmtSpan};
+
+use tracing::{error, info, instrument};
 
 enum Kind {
     Server(TcpListener),
@@ -25,24 +27,38 @@ struct Client {
 }
 
 impl Client {
-    fn write_buffer(&mut self) -> io::Result<()> {
-        log::trace!("=> write");
+    #[instrument(skip(self, api), level = "trace")]
+    fn write_buffer(
+        &mut self,
+        api: &mut Api<DataBox<Kind>>,
+    ) -> io::Result<()> {
         while !self.buffer.is_empty() {
             let n = match self.stream.write(&self.buffer) {
                 Ok(n) => n,
                 Err(e) => {
                     if e.kind() == ErrorKind::WouldBlock {
-                        log::trace!("Register for write");
+                        if !self.flags.contains(Flags::EPOLLOUT) {
+                            info!("Register for write");
+                            let flags = self.flags | Flags::EPOLLOUT;
+                            api.mod_flags(self.stream.as_raw_fd(), flags)?;
+                            self.flags = flags;
+                        }
                         return Ok(());
                     } else {
                         return Err(e);
                     }
                 }
             };
-            log::trace!("writen: {}", n);
+            info!("writen: {}", n);
             self.buffer.drain(..n);
         }
-        log::trace!("<= write");
+
+        if self.flags.contains(Flags::EPOLLOUT) {
+            info!("Unregister for write");
+            let flags = self.flags ^ Flags::EPOLLOUT;
+            api.mod_flags(self.stream.as_raw_fd(), flags)?;
+            self.flags = flags;
+        }
 
         Ok(())
     }
@@ -51,6 +67,7 @@ impl Client {
 fn main() {
     tracing_subscriber::fmt()
         .with_max_level(LevelFilter::TRACE)
+        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
         .init();
 
     let mut epoll = EPoll::new(true, 42).unwrap();
@@ -113,25 +130,25 @@ fn main() {
                     if flags.contains(Flags::EPOLLIN) {
                         match read_until_wouldblock(&client.stream, &mut client.buffer, 4096) {
                             State::WouldBlock(_) => {
-                                if let Err(e) = client.write_buffer() {
+                                if let Err(e) = client.write_buffer(wait.api) {
                                     eprint!("{}", e);
                                     dels.push_back(client.stream.as_raw_fd());
                                 }
                             }
                             State::EndOfFile(_) => {
-                                if let Err(e) = client.write_buffer() {
+                                if let Err(e) = client.write_buffer(wait.api) {
                                     eprint!("{}", e);
                                 }
                                 dels.push_back(client.stream.as_raw_fd());
                             }
                             State::Error(e) => {
-                                log::error!("{}", e);
+                                error!("{}", e);
                                 dels.push_back(client.stream.as_raw_fd());
                             }
                         }
                     }
                     if flags.contains(Flags::EPOLLOUT) {
-                        if let Err(e) = client.write_buffer() {
+                        if let Err(e) = client.write_buffer(wait.api) {
                             eprint!("{}", e);
                             dels.push_back(client.stream.as_raw_fd());
                         }

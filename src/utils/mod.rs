@@ -7,8 +7,7 @@ use std::{
 
 pub use read_size::ReadSize;
 
-#[cfg(feature = "tracing")]
-use tracing::trace_span;
+use tracing::{info, instrument};
 
 #[must_use]
 pub enum State {
@@ -18,7 +17,7 @@ pub enum State {
 }
 
 /// This function assume the Read implementation don't do anything stupid sue me
-
+#[instrument(skip(reader, output, read_size), level = "trace")]
 pub fn read_until_wouldblock<R, S>(
     mut reader: R,
     output: &mut Vec<u8>,
@@ -29,10 +28,7 @@ where
     S: Into<ReadSize>,
 {
     let read_size: ReadSize = read_size.into();
-
-    #[cfg(feature = "tracing")]
-    let _span = trace_span!("read_until_wouldblock", ?read_size).entered();
-
+    info!(?read_size);
     let read_size = read_size.into();
 
     let mut total = 0;
@@ -66,11 +62,10 @@ where
     ret
 }
 
-pub fn set_non_blocking<DataFd: AsRawFd>(fd: DataFd) -> io::Result<()> {
+#[instrument(skip(fd), level = "trace")]
+pub fn set_non_blocking<Fd: AsRawFd>(fd: Fd) -> io::Result<()> {
     let fd = fd.as_raw_fd();
-
-    #[cfg(feature = "tracing")]
-    let _span = trace_span!("set_non_blocking", fd).entered();
+    info!(fd);
 
     unsafe {
         let flags = libc::fcntl(fd, libc::F_GETFL);

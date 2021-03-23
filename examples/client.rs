@@ -10,7 +10,9 @@ use std::{
     os::unix::io::AsRawFd,
 };
 
-use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::{filter::LevelFilter, fmt::format::FmtSpan};
+
+use tracing::{error, info, instrument};
 
 enum Kind {
     Server(Server),
@@ -21,19 +23,30 @@ struct Server {
     stream: TcpStream,
     buf_read: Vec<u8>,
     buf_write: Vec<u8>,
+    flags: Flags,
 }
 
 impl Server {
-    fn write_buffer(&mut self) -> io::Result<()> {
-        log::trace!("=> write");
-        if !self.buf_write.is_empty() {
-            let n = self.stream.write(&self.buf_write)?;
-            log::trace!("writen: {}", n);
+    #[instrument(skip(self), level = "trace")]
+    fn write_buffer(&mut self) -> State {
+        let mut total = 0;
+        while !self.buf_write.is_empty() {
+            let n = match self.stream.write(&self.buf_write) {
+                Ok(n) => n,
+                Err(e) => {
+                    if e.kind() == ErrorKind::WouldBlock {
+                        return State::WouldBlock(total);
+                    } else {
+                        return State::Error(e);
+                    }
+                }
+            };
+            info!("writen: {}", n);
             self.buf_write.drain(..n);
+            total += n;
         }
-        log::trace!("<= write");
 
-        Ok(())
+        State::EndOfFile(total)
     }
 
     fn use_buffer(&mut self) {
@@ -60,6 +73,7 @@ impl Server {
 fn main() {
     tracing_subscriber::fmt()
         .with_max_level(LevelFilter::TRACE)
+        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
         .init();
 
     let args: Vec<_> = std::env::args().collect();
@@ -74,12 +88,14 @@ fn main() {
     println!("Connect to {}", local_addr);
 
     let fd = stream.as_raw_fd();
+    let flags = Flags::EPOLLIN | Flags::EPOLLET;
     let event = Event::new(
-        Flags::EPOLLIN | Flags::EPOLLOUT | Flags::EPOLLET,
+        flags,
         Data::new_box(Kind::Server(Server {
             stream,
             buf_write: Default::default(),
             buf_read: Default::default(),
+            flags,
         })),
     );
 
@@ -108,22 +124,44 @@ fn main() {
                         match read_until_wouldblock(&server.stream, &mut server.buf_read, 4096) {
                             State::EndOfFile(_) => {
                                 server.use_buffer();
-                                log::info!("Server disconnect");
+                                info!("Server disconnect");
                                 break 'run;
                             }
                             State::WouldBlock(_) => {
                                 server.use_buffer();
                             }
                             State::Error(e) => {
-                                log::error!("{}", e);
+                                error!("{}", e);
                                 break 'run;
                             }
                         }
                     }
                     if flags.contains(Flags::EPOLLOUT) {
-                        if let Err(e) = server.write_buffer() {
-                            log::error!("{}", e);
-                            break 'run;
+                        match server.write_buffer() {
+                            State::WouldBlock(_) => {
+                                if !server.flags.contains(Flags::EPOLLOUT) {
+                                    info!("Register for write");
+                                    let flags = server.flags | Flags::EPOLLOUT;
+                                    wait.api
+                                        .mod_flags(server.stream.as_raw_fd(), flags)
+                                        .unwrap();
+                                    server.flags = flags;
+                                }
+                            }
+                            State::EndOfFile(_) => {
+                                if server.flags.contains(Flags::EPOLLOUT) {
+                                    info!("Unregister for write");
+                                    let flags = server.flags ^ Flags::EPOLLOUT;
+                                    wait.api
+                                        .mod_flags(server.stream.as_raw_fd(), flags)
+                                        .unwrap();
+                                    server.flags = flags;
+                                }
+                            }
+                            State::Error(e) => {
+                                error!("{}", e);
+                                break 'run;
+                            }
                         }
                     }
                 }
@@ -136,20 +174,43 @@ fn main() {
                         };
 
                         match read_until_wouldblock(stdin, &mut server.buf_write, 4096) {
-                            State::EndOfFile(_) => {
-                                if let Err(e) = server.write_buffer() {
-                                    log::error!("{}", e);
-                                }
-                                break 'run;
-                            }
-                            State::WouldBlock(_) => {
-                                if let Err(e) = server.write_buffer() {
-                                    log::error!("{}", e);
+                            State::EndOfFile(_) => match server.write_buffer() {
+                                State::WouldBlock(_) => {
+                                    if !server.flags.contains(Flags::EPOLLOUT) {
+                                        info!("Register for write");
+                                        let fd = server.stream.as_raw_fd();
+                                        server.flags = server.flags | Flags::EPOLLOUT;
+                                        let flags = server.flags;
+                                        wait.api.mod_flags(fd, flags).unwrap();
+                                    }
                                     break 'run;
                                 }
-                            }
+                                State::EndOfFile(_) => {
+                                    break 'run;
+                                }
+                                State::Error(e) => {
+                                    error!("{}", e);
+                                    break 'run;
+                                }
+                            },
+                            State::WouldBlock(_) => match server.write_buffer() {
+                                State::WouldBlock(_) => {
+                                    if !server.flags.contains(Flags::EPOLLOUT) {
+                                        info!("Register for write");
+                                        let fd = server.stream.as_raw_fd();
+                                        server.flags = server.flags | Flags::EPOLLOUT;
+                                        let flags = server.flags;
+                                        wait.api.mod_flags(fd, flags).unwrap();
+                                    }
+                                }
+                                State::EndOfFile(_) => {}
+                                State::Error(e) => {
+                                    error!("{}", e);
+                                    break 'run;
+                                }
+                            },
                             State::Error(e) => {
-                                log::error!("{}", e);
+                                error!("{}", e);
                                 if e.kind() != ErrorKind::WouldBlock {
                                     break 'run;
                                 }

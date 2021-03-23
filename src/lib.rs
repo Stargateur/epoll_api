@@ -24,8 +24,7 @@ use std::{
 
 use snafu::Snafu;
 
-#[cfg(feature = "tracing")]
-use tracing::trace_span;
+use tracing::{info, instrument};
 
 #[repr(C)]
 #[cfg_attr(
@@ -161,15 +160,15 @@ impl<T> EPoll<DataBox<T>> {
 
 pub trait EPollApi<T: DataKind> {
     /// Safe wrapper to add an event for `libc::epoll_ctl`
-    fn add(
+    fn add<Fd: AsRawFd>(
         &mut self,
-        fd: RawFd,
+        fd: Fd,
         event: Event<T>,
     ) -> io::Result<&mut Data<T>>;
 
-    fn mod_flags(
+    fn mod_flags<Fd: AsRawFd>(
         &mut self,
-        fd: RawFd,
+        fd: Fd,
         flags: Flags,
     ) -> io::Result<()>;
 
@@ -180,9 +179,9 @@ pub trait EPollApi<T: DataKind> {
     /// you will need to use `ctl_mod()`
     fn get_datas(&self) -> &HashMap<RawFd, Data<T>>;
 
-    fn get_data_mut(
+    fn get_data_mut<Fd: AsRawFd>(
         &mut self,
-        fd: RawFd,
+        fd: Fd,
     ) -> Option<&mut Data<T>>;
 }
 
@@ -235,13 +234,14 @@ impl<T: DataKind> Api<T> {
 }
 
 impl<T: DataKind> EPollApi<T> for Api<T> {
-    fn add(
+    #[instrument(skip(self, fd, event), level = "trace")]
+    fn add<Fd: AsRawFd>(
         &mut self,
-        fd: RawFd,
+        fd: Fd,
         mut event: Event<T>,
     ) -> io::Result<&mut Data<T>> {
-        #[cfg(feature = "tracing")]
-        let _span = trace_span!("add", self.fd, fd, flags = ?event.flags()).entered();
+        let fd = fd.as_raw_fd();
+        info!(self.fd, fd, flags = ?event.flags());
 
         match self.datas.entry(fd) {
             Entry::Occupied(_) => Err(ErrorKind::AlreadyExists.into()),
@@ -258,12 +258,14 @@ impl<T: DataKind> EPollApi<T> for Api<T> {
         }
     }
 
-    fn mod_flags(
+    #[instrument(skip(self, fd, flags), level = "trace")]
+    fn mod_flags<Fd: AsRawFd>(
         &mut self,
-        fd: RawFd,
+        fd: Fd,
         flags: Flags,
     ) -> io::Result<()> {
-        let _span = trace_span!("mod_flags", self.fd, fd, ?flags).entered();
+        let fd = fd.as_raw_fd();
+        info!(self.fd, fd, ?flags);
 
         match self.datas.entry(fd) {
             Entry::Occupied(o) => {
@@ -288,26 +290,28 @@ impl<T: DataKind> EPollApi<T> for Api<T> {
         &self.datas
     }
 
-    fn get_data_mut(
+    fn get_data_mut<Fd: AsRawFd>(
         &mut self,
-        fd: RawFd,
+        fd: Fd,
     ) -> Option<&mut Data<T>> {
+        let fd = fd.as_raw_fd();
+
         self.datas.get_mut(&fd)
     }
 }
 
 impl<T: DataKind> EPollApi<T> for EPoll<T> {
-    fn add(
+    fn add<Fd: AsRawFd>(
         &mut self,
-        fd: RawFd,
+        fd: Fd,
         event: Event<T>,
     ) -> io::Result<&mut Data<T>> {
         self.api.add(fd, event)
     }
 
-    fn mod_flags(
+    fn mod_flags<Fd: AsRawFd>(
         &mut self,
-        fd: RawFd,
+        fd: Fd,
         flags: Flags,
     ) -> io::Result<()> {
         self.api.mod_flags(fd, flags)
@@ -317,9 +321,9 @@ impl<T: DataKind> EPollApi<T> for EPoll<T> {
         self.api.get_datas()
     }
 
-    fn get_data_mut(
+    fn get_data_mut<Fd: AsRawFd>(
         &mut self,
-        fd: RawFd,
+        fd: Fd,
     ) -> Option<&mut Data<T>> {
         self.api.get_data_mut(fd)
     }
@@ -354,15 +358,13 @@ impl<T: DataKind> EPoll<T> {
     /// ## Notes
     ///
     /// * `epoll_create1()` is the underlying syscall.
+    #[instrument(skip(close_exec, max_events) level = "trace")]
     pub fn new<N: Into<MaxEvents>>(
         close_exec: bool,
         max_events: N,
     ) -> Result<Self, Error> {
         let max_events = max_events.into();
-
-        #[cfg(feature = "tracing")]
-        let _span = trace_span!("new", close_exec, ?max_events).entered();
-
+        info!(close_exec, ?max_events);
         let max_events = max_events.into();
 
         let flags = if close_exec { libc::EPOLL_CLOEXEC } else { 0 };
@@ -380,13 +382,14 @@ impl<T: DataKind> EPoll<T> {
 
     /// Safe wrapper to modify an event for `libc::epoll_ctl`
     /// return the old value
-    pub fn mod_event(
+    #[instrument(skip(self, event, fd), level = "trace")]
+    pub fn mod_event<Fd: AsRawFd>(
         &mut self,
-        fd: RawFd,
+        fd: Fd,
         mut event: Event<T>,
     ) -> Result<(Data<T>, &mut Data<T>), Error> {
-        #[cfg(feature = "tracing")]
-        let _span = trace_span!("mod_event", self.api.fd, fd, flags = ?event.flags()).entered();
+        let fd = fd.as_raw_fd();
+        info!(self.api.fd, fd);
 
         match self.api.datas.entry(fd) {
             Entry::Occupied(o) => {
@@ -407,12 +410,13 @@ impl<T: DataKind> EPoll<T> {
     }
 
     /// Safe wrapper to delete an event for `libc::epoll_ctl`
-    pub fn del(
+    #[instrument(skip(self, fd), level = "trace")]
+    pub fn del<Fd: AsRawFd>(
         &mut self,
-        fd: RawFd,
+        fd: Fd,
     ) -> Result<Data<T>, Error> {
-        #[cfg(feature = "tracing")]
-        let _span = trace_span!("del", self.api.fd, fd).entered();
+        let fd = fd.as_raw_fd();
+        info!(self.api.fd, fd);
 
         match self.api.datas.entry(fd) {
             Entry::Occupied(o) => {
@@ -436,9 +440,9 @@ impl<T: DataKind> EPoll<T> {
     /// you will need to call `Event<DataPtr<T>>::into_inner()`
     /// This could be improve if we could specialize Drop
     /// https://github.com/rust-lang/rust/issues/46893
+    #[instrument(skip(self), level = "trace")]
     pub fn close(self) -> (Result<(), Error>, HashMap<RawFd, Data<T>>) {
-        #[cfg(feature = "tracing")]
-        let _span = trace_span!("close", self.api.fd).entered();
+        info!(self.api.fd);
 
         let ret = unsafe { libc::close(self.as_raw_fd()) };
         let result = if ret < 0 { Err(ret.into()) } else { Ok(()) };
@@ -452,6 +456,7 @@ impl<T: DataKind> EPoll<T> {
     /// ## Notes
     ///
     /// * If `time_out` is negative, it will block until an event is received.
+    #[instrument(skip(self, time_out), level = "trace")]
     pub fn wait<N: Into<TimeOut>>(
         &mut self,
         time_out: N,
@@ -460,10 +465,7 @@ impl<T: DataKind> EPoll<T> {
         N: Into<TimeOut>,
     {
         let time_out = time_out.into();
-
-        #[cfg(feature = "tracing")]
-        let _span = trace_span!("wait", self.api.fd, ?time_out).entered();
-
+        info!(self.api.fd, ?time_out);
         let time_out = time_out.into();
 
         unsafe {
@@ -492,15 +494,13 @@ impl<T: DataKind> EPoll<T> {
     }
 
     /// This resize the buffer used to recieve event
+    #[instrument(skip(self, max_events), level = "trace")]
     pub fn resize_buffer<N: Into<MaxEvents>>(
         &mut self,
         max_events: N,
     ) {
         let max_events = max_events.into();
-
-        #[cfg(feature = "tracing")]
-        let _span = trace_span!("resize_buffer", fd = self.api.fd, ?max_events).entered();
-
+        info!(self.api.fd, ?max_events);
         let max_events = max_events.into();
 
         self.buffer.resize_with(max_events, MaybeUninit::uninit);
