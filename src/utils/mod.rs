@@ -33,7 +33,7 @@ where
 
     let mut total = 0;
     let ret = loop {
-        let available = output.capacity() - output.len();
+        let available = output.capacity();
         if available < read_size {
             output.reserve(read_size - available);
         }
