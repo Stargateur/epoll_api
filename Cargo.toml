@@ -37,3 +37,11 @@ optional = true
 log = "0.4"
 nix = "0.20"
 tracing-subscriber = "0.2"
+
+[dev-dependencies.tracing]
+version = "0.1"
+features = ["max_level_trace", "release_max_level_trace"]
+
+[dev-dependencies.tracing-log]
+version = "0.1"
+features = ["env_logger"]

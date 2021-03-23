@@ -10,7 +10,7 @@ use std::{
     os::unix::io::AsRawFd,
 };
 
-use tracing_subscriber::{filter::LevelFilter, fmt::Subscriber};
+use tracing_subscriber::filter::LevelFilter;
 
 enum Kind {
     Server(Server),
@@ -58,12 +58,10 @@ impl Server {
 }
 
 fn main() {
-    tracing::subscriber::set_global_default(
-        Subscriber::builder()
-            .with_max_level(LevelFilter::TRACE)
-            .finish(),
-    )
-    .expect("setting tracing failed");
+    tracing_log::env_logger::init();
+    tracing_subscriber::fmt()
+        .with_max_level(LevelFilter::TRACE)
+        .init();
 
     let args: Vec<_> = std::env::args().collect();
 
