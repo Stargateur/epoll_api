@@ -11,6 +11,8 @@ use std::{
     os::unix::io::AsRawFd,
 };
 
+use tracing_subscriber::{filter::LevelFilter, fmt::Subscriber};
+
 enum Kind {
     Server(TcpListener),
     Client(Client),
@@ -47,8 +49,12 @@ impl Client {
 }
 
 fn main() {
-    tracing::subscriber::set_global_default(tracing_subscriber::FmtSubscriber::new())
-        .expect("setting tracing default failed");
+    tracing::subscriber::set_global_default(
+        Subscriber::builder()
+            .with_max_level(LevelFilter::TRACE)
+            .finish(),
+    )
+    .expect("setting tracing failed");
 
     let mut epoll = EPoll::new(true, 42).unwrap();
 
