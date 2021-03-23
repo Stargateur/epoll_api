@@ -33,13 +33,7 @@ where
 
     let mut total = 0;
     let ret = loop {
-        let available = output.capacity();
-        debug!(available);
-        if available < read_size {
-            let to_reserve = read_size - available;
-            debug!(to_reserve);
-            output.reserve(read_size - available);
-        }
+        output.reserve(read_size);
         let buffer = unsafe {
             std::slice::from_raw_parts_mut(output.as_mut_ptr().add(output.len()), read_size)
         };
