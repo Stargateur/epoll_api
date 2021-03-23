@@ -7,7 +7,7 @@ use std::{
 
 pub use read_size::ReadSize;
 
-use tracing::{debug, info, instrument};
+use tracing::{info, instrument};
 
 #[must_use]
 pub enum State {
@@ -37,7 +37,6 @@ where
         let buffer = unsafe {
             std::slice::from_raw_parts_mut(output.as_mut_ptr().add(output.len()), read_size)
         };
-        debug!(buffer = ?buffer.as_mut_ptr(), ptr = ?output.as_mut_ptr(), len = output.len(), cap = output.capacity(), read_size);
 
         match reader.read(buffer) {
             Ok(octet_read) => {

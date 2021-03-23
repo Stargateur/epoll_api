@@ -82,12 +82,7 @@ mod tests {
 
     #[test]
     fn new_max() {
-        read_size_new(libc::c_int::MAX as usize);
-    }
-
-    #[test]
-    fn new_max_usize() {
-        read_size_new_error(usize::MAX);
+        read_size_new(usize::MAX);
     }
 
     #[test]
@@ -97,7 +92,7 @@ mod tests {
 
     #[test]
     fn max() {
-        assert_eq!(ReadSize::new(libc::c_int::MAX as usize), Ok(ReadSize::MAX));
+        assert_eq!(ReadSize::new(usize::MAX), Ok(ReadSize::MAX));
     }
 
     #[test]
@@ -143,14 +138,11 @@ mod tests {
 
     #[test]
     fn into_max() {
-        assert_eq!(
-            Into::<usize>::into(ReadSize::MAX),
-            libc::c_int::MAX as usize
-        );
+        assert_eq!(Into::<usize>::into(ReadSize::MAX), usize::MAX);
     }
 
     #[test]
     fn into_default() {
-        assert_eq!(Into::<usize>::into(ReadSize::DEFAULT), 64);
+        assert_eq!(Into::<usize>::into(ReadSize::DEFAULT), 4096);
     }
 }

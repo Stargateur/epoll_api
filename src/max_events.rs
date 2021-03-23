@@ -109,11 +109,6 @@ mod tests {
     }
 
     #[test]
-    fn saturate_max() {
-        assert_eq!(MaxEvents::new(usize::MAX), Ok(MaxEvents::MAX));
-    }
-
-    #[test]
     fn default() {
         assert_eq!(MaxEvents::default(), MaxEvents::DEFAULT);
     }
@@ -121,6 +116,11 @@ mod tests {
     #[test]
     fn one() {
         assert_eq!(Ok(MaxEvents::from(1)), MaxEvents::new(1));
+    }
+
+    #[test]
+    fn saturate_max() {
+        assert_eq!(MaxEvents::from(usize::MAX), MaxEvents::MAX);
     }
 
     fn max_events_new_unchecked(max_events: usize) {
