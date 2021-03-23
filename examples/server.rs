@@ -47,7 +47,8 @@ impl Client {
 }
 
 fn main() {
-    pretty_env_logger::init();
+    tracing::subscriber::set_global_default(tracing_subscriber::FmtSubscriber::new())
+        .expect("setting tracing default failed");
 
     let mut epoll = EPoll::new(true, 42).unwrap();
 

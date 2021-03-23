@@ -56,7 +56,8 @@ impl Server {
 }
 
 fn main() {
-    pretty_env_logger::init();
+    tracing::subscriber::set_global_default(tracing_subscriber::FmtSubscriber::new())
+        .expect("setting tracing default failed");
 
     let args: Vec<_> = std::env::args().collect();
 
