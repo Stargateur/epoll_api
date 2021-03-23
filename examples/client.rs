@@ -31,8 +31,12 @@ impl Server {
     fn write_buffer(&mut self) -> State {
         let mut total = 0;
         while !self.buf_write.is_empty() {
-            let n = match self.stream.write(&self.buf_write) {
-                Ok(n) => n,
+            match self.stream.write(&self.buf_write) {
+                Ok(octet_write) => {
+                    info!(octet_write);
+                    self.buf_write.drain(..octet_write);
+                    total += octet_write;
+                }
                 Err(e) => {
                     if e.kind() == ErrorKind::WouldBlock {
                         return State::WouldBlock(total);
@@ -40,10 +44,7 @@ impl Server {
                         return State::Error(e);
                     }
                 }
-            };
-            info!("writen: {}", n);
-            self.buf_write.drain(..n);
-            total += n;
+            }
         }
 
         State::EndOfFile(total)

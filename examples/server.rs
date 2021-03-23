@@ -49,7 +49,7 @@ impl Client {
                     }
                 }
             };
-            info!("writen: {}", n);
+            info!(written = n);
             self.buffer.drain(..n);
         }
 

@@ -7,7 +7,7 @@ use std::{
 
 pub use read_size::ReadSize;
 
-use tracing::{info, instrument};
+use tracing::{debug, info, instrument};
 
 #[must_use]
 pub enum State {
@@ -34,20 +34,26 @@ where
     let mut total = 0;
     let ret = loop {
         let available = output.capacity();
+        debug!(available);
         if available < read_size {
+            let to_reserve = read_size - available;
+            debug!(to_reserve);
             output.reserve(read_size - available);
         }
         let buffer = unsafe {
             std::slice::from_raw_parts_mut(output.as_mut_ptr().add(output.len()), read_size)
         };
+        debug!(buffer = ?buffer.as_mut_ptr(), ptr = ?output.as_mut_ptr(), len = output.len(), cap = output.capacity(), read_size);
+
         match reader.read(buffer) {
-            Ok(n) => {
-                if n == 0 {
+            Ok(octet_read) => {
+                if octet_read == 0 {
                     break State::EndOfFile(total);
                 }
-                total += n;
+                info!(octet_read);
+                total += octet_read;
 
-                unsafe { output.set_len(output.len() + n) }
+                unsafe { output.set_len(output.len() + octet_read) }
             }
             Err(e) => {
                 break if e.kind() == ErrorKind::WouldBlock {
