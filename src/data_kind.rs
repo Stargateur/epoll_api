@@ -11,32 +11,17 @@ use std::{
 /// The union that `epoll` define
 #[derive(Copy, Clone)]
 pub union RawData {
-    ptr: *mut libc::c_void,
-    fd: RawFd,
-    _u32: u32,
-    _u64: u64,
-}
-/// 'libc::epoll_event' should be define like this
-#[repr(C)]
-#[cfg_attr(
-    any(
-        all(
-            target_arch = "x86",
-            not(target_env = "musl"),
-            not(target_os = "android")
-        ),
-        target_arch = "x86_64"
-    ),
-    repr(packed)
-)]
-pub struct RawEvent {
-    pub flags: u32,
-    pub data: RawData,
+    pub ptr: *mut libc::c_void,
+    pub fd: RawFd,
+    pub _u32: u32,
+    pub _u64: u64,
 }
 
-static_assertions::assert_eq_size!(libc::epoll_event, RawEvent,);
-
-static_assertions::assert_eq_align!(u8, libc::epoll_event, RawEvent,);
+impl RawData {
+    pub unsafe fn from_u64(_u64: u64) -> Self {
+        Self { _u64 }
+    }
+}
 
 /// Regroup DakaKind type
 pub trait DataKind {}
@@ -72,6 +57,26 @@ impl<T: DataKind> Data<T> {
 
     pub fn data_kind(&self) -> PhantomData<T> {
         self.data_kind
+    }
+}
+
+/// This represent DataRaw mode
+#[derive(Debug, Copy, Clone)]
+pub struct DataRaw;
+impl DataKind for DataRaw {}
+
+impl Data<DataRaw> {
+    pub fn new_raw(raw: RawData) -> Self {
+        Self {
+            raw,
+            data_kind: PhantomData,
+        }
+    }
+}
+
+impl Clone for Data<DataRaw> {
+    fn clone(&self) -> Self {
+        Self::new_raw(self.raw())
     }
 }
 

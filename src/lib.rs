@@ -17,6 +17,7 @@ use std::{
     collections::hash_map::{Entry, HashMap},
     fmt::{self, Debug, Formatter},
     io::{self, ErrorKind},
+    marker::PhantomData,
     mem::MaybeUninit,
     os::unix::io::{AsRawFd, RawFd},
     ptr::null_mut,
@@ -26,21 +27,10 @@ use snafu::Snafu;
 
 use tracing::{info, instrument};
 
-#[repr(C)]
-#[cfg_attr(
-    any(
-        all(
-            target_arch = "x86",
-            not(target_env = "musl"),
-            not(target_os = "android")
-        ),
-        target_arch = "x86_64"
-    ),
-    repr(packed)
-)]
+#[repr(transparent)]
 pub struct Event<T: DataKind> {
-    flags: Flags,
-    data: Data<T>,
+    inner: libc::epoll_event,
+    phontom: PhantomData<T>,
 }
 
 static_assertions::assert_eq_size!(
@@ -48,16 +38,7 @@ static_assertions::assert_eq_size!(
     Event<DataFd>,
     Event<DataU32>,
     Event<DataU64>,
-    RawEvent,
-);
-
-static_assertions::assert_eq_align!(
-    u8,
-    Event<DataPtr<()>>,
-    Event<DataFd>,
-    Event<DataU32>,
-    Event<DataU64>,
-    RawEvent,
+    libc::epoll_event,
 );
 
 impl<T: DataKind> Event<T> {
@@ -65,27 +46,30 @@ impl<T: DataKind> Event<T> {
         flags: Flags,
         data: Data<T>,
     ) -> Self {
-        Self { flags, data }
+        let inner = libc::epoll_event {
+            events: flags.bits(),
+            u64: unsafe { std::mem::transmute(data) },
+        };
+        Self {
+            inner,
+            phontom: PhantomData,
+        }
     }
 
     pub fn flags(&self) -> Flags {
-        self.flags
+        unsafe { Flags::from_bits_unchecked(self.inner.events) }
     }
 
     pub fn data(&self) -> &Data<T> {
-        // https://github.com/rust-lang/rust/issues/46043
-        // it's safe cause Event align is 1
-        unsafe { &self.data }
+        unsafe { std::mem::transmute(&self.inner.u64) }
     }
 
     pub fn data_mut(&mut self) -> &mut Data<T> {
-        // https://github.com/rust-lang/rust/issues/46043
-        // it's safe cause Event align is 1
-        unsafe { &mut self.data }
+        unsafe { std::mem::transmute(&mut self.inner.u64) }
     }
 
     pub fn into_data(self) -> Data<T> {
-        self.data
+        unsafe { std::mem::transmute(self.inner.u64) }
     }
 }
 
@@ -94,7 +78,7 @@ where
     Data<T>: Clone,
 {
     fn clone(&self) -> Self {
-        Self::new(self.flags, self.data().clone())
+        Self::new(self.flags(), self.data().clone())
     }
 }
 
@@ -269,10 +253,7 @@ impl<T: DataKind> EPollApi<T> for Api<T> {
 
         match self.datas.entry(fd) {
             Entry::Occupied(o) => {
-                let data = o.into_mut().raw();
-                let flags = flags.bits();
-
-                let mut raw_event = RawEvent { flags, data };
+                let mut raw_event = Event::new(flags, Data::new_raw(o.into_mut().raw()));
                 let event = &mut raw_event as *mut _ as *mut libc::epoll_event;
                 let op = ControlOptions::EPOLL_CTL_MOD as i32;
 
